@@ -61,19 +61,43 @@ Play Store (`mobile-native.md`).
 
 ## Setup
 
+The full-stack block was executed end to end on a clean machine at the versions pinned above; its
+comments mark every place where the obvious command fails, with the full reproduction of each in
+Gotchas. Copy those comments into step 1 of a blueprint — they are the difference between a first
+verify command that exits 0 and one that does not.
+
 ```bash
 # Pin the toolchain first — this is what makes a build reproducible.
-corepack enable && corepack prepare pnpm@11.17.0 --activate
+# Bare `corepack enable` exits 1 with EACCES wherever the global bin dir is not writable
+# (root-installed Node, most CI images). Prefer an explicit writable directory:
+corepack enable --install-directory "$HOME/.local/bin"   # then ensure it is on PATH
+corepack prepare pnpm@11.17.0 --activate
 node -v   # expect v24.x
 
 # --- Full-stack app (default) ---
-pnpm create next-app@latest my-app --ts --app --tailwind --eslint=false --src-dir --use-pnpm
+# `--eslint=false` does NOT disable ESLint — the flag takes no value and is silently ignored.
+# `--biome` is the flag that gives a Biome-only project.
+# This command's own install ABORTS on ERR_PNPM_IGNORED_BUILDS and still exits 0. Do not trust it.
+pnpm create next-app@latest my-app --ts --app --tailwind --biome --src-dir --use-pnpm
 cd my-app
+pnpm approve-builds --all           # pnpm 11 key is `allowBuilds`, NOT `onlyBuiltDependencies`
+pnpm install --frozen-lockfile      # this is the real gate — it exits 0 only after the line above
+
+# The scaffold pins biome 2.2.0 and typescript ^5 — override both to this track's pins.
 pnpm add -D typescript@~6.0.3 @biomejs/biome@2.5.5 vitest@4 @playwright/test@1
 pnpm add zod@4 @tanstack/react-query@5 drizzle-orm@0.45.2
 pnpm add -D drizzle-kit@0.31.10
-pnpm dlx @biomejs/biome@2.5.5 init
-pnpm dlx shadcn@4 init
+pnpm exec playwright install --with-deps   # tests fail hard without the browser binaries
+
+# `--biome` already wrote biome.json and `biome init` refuses to overwrite it. EDIT it:
+# bump "$schema" to .../2.5.5/schema.json and add the Tailwind parser option, or every
+# CSS lint dies on the @theme block the scaffolder generated.
+#   "css": { "parser": { "tailwindDirectives": true } }
+pnpm exec biome check --write .   # reconcile the scaffold's formatting with the config, once
+# Bare `shadcn init` prompts for a component library and blocks an unattended run.
+# Pass it explicitly — `-b, --base` takes base | radix | aria, and the CLI's own default
+# preset is Base UI, so "we chose Radix" is not true unless you say so on the command line.
+pnpm dlx shadcn@4 init --base radix --no-monorepo
 
 # --- Content / marketing site ---
 pnpm create astro@latest my-site -- --template minimal --typescript strict
@@ -156,6 +180,107 @@ drizzle/                # generated SQL migrations, committed
 - Run migrations as an explicit deploy step, never on app boot. Concurrent instances will race.
 
 ## Gotchas
+
+The first five were reproduced by executing the exact pinned versions in this file on a clean
+machine, not read off a changelog — each one breaks the **first verify command of the first step on
+an untouched scaffold**, so copy them into step 1 of any blueprint on this track. The sixth (cron)
+is quoted from the vendor's docs. Everything after that is documentation- or changelog-sourced.
+
+- **pnpm 11 aborts install on a freshly scaffolded app: `ERR_PNPM_IGNORED_BUILDS`.** Dependencies
+  with install/postinstall scripts do not run them unless explicitly allowed, and `pnpm install`
+  exits **1** rather than warning. Reproduced on an untouched `create-next-app` project:
+  `[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: sharp@0.34.5`. Three details that decide whether
+  a build order survives this, all verified:
+  1. **`pnpm create next-app` exits 0 anyway.** It prints `Aborting installation. pnpm install has
+     failed.` and returns success, so a `set -e` script sails straight past it. The failure surfaces
+     one step later at the first `pnpm install --frozen-lockfile` — which is exactly where a blueprint
+     puts its first acceptance gate.
+  2. **pnpm leaves a `pnpm-workspace.yaml` stub whose value is a sentence, not a value.** Verbatim
+     from a clean scaffold: `allowBuilds:` / `  sharp: set this to true or false`, plus an
+     `ignoredBuiltDependencies:` list (`sharp`, `unrs-resolver`). Anyone who skims the file sees the
+     key already present and moves on. Set it to a real boolean:
+     ```yaml
+     allowBuilds:
+       sharp: true
+     ```
+  3. **The key was renamed in pnpm 11 and the old one fails silently.** `onlyBuiltDependencies:` —
+     the pnpm 10 key — is still accepted by the config reader and does nothing: verified that install
+     still exits 1 with the identical error, no deprecation notice, no warning. That silence is what
+     makes it cost two attempts instead of one.
+
+  The one-command fix is `pnpm approve-builds --all` — non-interactive despite the name, it runs the
+  scripts and rewrites the `allowBuilds` block for you; `pnpm install --frozen-lockfile` then exits 0.
+  Read the package list off the error rather than hardcoding it: it changes with the scaffold flags
+  (the ESLint variant pulls `unrs-resolver` in through `eslint-config-next`). A
+  `dangerouslyAllowAllBuilds: true` escape hatch also exists; it discards the supply-chain gate the
+  error is there to enforce, so never put it in a blueprint.
+
+- **`create-next-app --eslint=false` is a no-op — the flag does not take a value.** The scaffolder
+  does not parse `=false`; it treats the option as *unprovided* and applies the default, printing
+  `Using defaults for unprovided options: --eslint  ESLint (use --biome for Biome, --no-eslint for
+  None)`. Verified: `eslint` and `eslint-config-next` install anyway and `"lint": "eslint"` lands in
+  `package.json` — silently contradicting a Biome-only decision. Use **`--biome`** (scaffolds
+  `biome.json` and `"lint": "biome check"`, no ESLint anywhere) or `--no-eslint` for neither. Two
+  follow-ons that a blueprint's step 1 must handle explicitly, both verified on the `--biome`
+  scaffold: it pins `@biomejs/biome@2.2.0` and `typescript@^5` (resolved 5.9.3), **not** this file's
+  `2.5.5` and `~6.0.3` — upgrade both in the next command; and `biome init` refuses to touch an
+  existing `biome.json` ("It seems that a configuration file already exists", file left byte-identical),
+  so the scaffolded config must be **edited**, not regenerated. Its defaults are
+  `indentStyle: "space"`, `indentWidth: 2` — `biome init` would have written tabs, so any hand-written
+  config or checked-in JSON in the blueprint must match whichever one actually ends up on disk or the
+  project fails its own lint gate on files nobody wrote.
+
+- **Biome cannot parse Tailwind v4's `@theme` until you turn its CSS parser option on.** With
+  `@biomejs/biome@2.5.5` and Tailwind 4, `biome check` reports
+  `parse × Tailwind-specific syntax is disabled` on `src/app/globals.css` — a file `create-next-app`
+  generated. It is a parse failure, so no lint-rule override and no `--write` pass clears it. The key
+  is exactly:
+  ```json
+  { "css": { "parser": { "tailwindDirectives": true } } }
+  ```
+  Verified: the only three keys Biome 2.5.5 accepts under `css.parser` are `allowWrongLineComments`,
+  `cssModules`, and `tailwindDirectives` — `tailwindSyntax` and similar guesses are rejected with
+  `Found an unknown key`. This is easy to miss because the scaffold's pinned Biome **2.2.0 parses the
+  same file cleanly**; the break appears the moment you upgrade to the version this track pins. Set
+  the key in the same step that installs Biome, before the first `lint` run. Cross-referenced as a
+  role-level row in `knowledge/stack-compatibility.md`.
+
+- **`corepack enable` fails with EACCES wherever the global bin directory is not writable.** Verified:
+  `Internal Error: EACCES: permission denied, symlink '../lib/node_modules/corepack/dist/pnpm.js' ->
+  '/usr/local/bin/pnpm'`, exit 1. This is the *first* command in the Setup block above, so it takes
+  the whole build down on any machine where Node was installed as root, and on most CI images.
+  `corepack enable --install-directory <writable-dir>` exits 0 and writes `pnpm`, `pnpx`, `yarn`,
+  `yarnpkg` shims there; put that directory on `PATH`. A blueprint that lists `corepack enable` as a
+  prerequisite must carry the fallback next to it, not leave the builder to find it.
+
+- **`next/font` emits fallback `@font-face` rules with no `font-display`, and no option changes that.**
+  A production build of an untouched `create-next-app` app has 13 `@font-face` rules in its CSS; 2
+  have no `font-display`, and both are the metric-override fallbacks next/font generates —
+  `font-family: Geist Fallback` / `Geist Mono Fallback`, `src: local(Arial)` plus
+  `ascent-override` / `descent-override` / `size-adjust`. Verified that passing `display: "swap"` to
+  the font loader does not add it: the count stays at 2 after a clean rebuild. `display` governs the
+  real font faces only. Consequence for blueprints: an acceptance criterion of the form *"every
+  shipped `@font-face` SHALL declare a font-display strategy"* is **unsatisfiable** while using
+  next/font, and a builder will burn a step discovering that. Scope the criterion to the faces you
+  control — "every `@font-face` that loads a font file over the network", or assert `display: "swap"`
+  at the loader call site instead of over the built CSS.
+
+- **Vercel Cron issues `GET`, so a `POST`-only scheduled endpoint never fires — silently.** Vercel's
+  docs: *"To trigger a cron job, Vercel makes an HTTP GET request to your project's production
+  deployment URL, using the `path` provided in your project's `vercel.json`."* A route handler that
+  exports only `POST` returns 405 to every invocation, the schedule looks healthy in the dashboard,
+  and the only symptom is that the work never happens. Related facts from the same docs, all of which
+  a blueprint gets wrong by default: a cron path that does not exist returns 404 and **still counts as
+  executed**; cron requests do **not** follow redirects, and a 3xx is treated as final; delivery is
+  best effort and can both skip and duplicate a run, so handlers must be idempotent and
+  reconciliation-based ("set status to active", never "increment by 10"); a long job can overlap its
+  own next invocation, so take a lock; failures are never retried. Secure the endpoint with a
+  `CRON_SECRET` env var — Vercel sends it as `Authorization: Bearer <secret>` — and compare it inside
+  the `GET` handler. Every request also carries `user-agent: vercel-cron/1.0` and an
+  `x-vercel-cron-schedule` header with the triggering expression, which is how one path serves two
+  schedules. `vercel dev` / `next dev` do not run crons; hit the URL directly in local testing.
+  If the job genuinely needs a request body, keep the `GET` handler as the trigger and have it call
+  the real work — do not change the platform's method.
 
 - **`middleware.ts` is gone — the file is now `proxy.ts`.** Renamed and deprecated in Next.js 16.0.0.
   The exported function is `proxy`, not `middleware`. Migrate with

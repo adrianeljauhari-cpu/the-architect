@@ -66,6 +66,20 @@ Claude Code reads `CLAUDE.md` and becomes The Architect. Same interview, same ga
 
 **Prerequisites:** [Claude Code](https://claude.com/claude-code) and a Claude subscription. Nothing else.
 
+### Pick your path: quick or full
+
+There are two entry points, and the difference is real. Choose before you start.
+
+| | [`/architect-quick`](commands/architect-quick.md) | [`/architect`](commands/architect.md) |
+|---|---|---|
+| **Questions** | 3, in one message | 12–16, across 6–7 messages |
+| **How long, end to end** | ~10 minutes | ~40–60 minutes |
+| **Use it when** | You already know the stack, or the build is small and you mostly want the plan written down | You intend to hand the result to an autonomous builder and walk away |
+| **What you give up** | Smart defaults for everything you weren't asked | Nothing — but it costs you an hour |
+| **What you keep** | Both gates, EARS acceptance criteria, verify commands, the confirmation gate | Same |
+
+Quick mode is genuinely faster than v1's default — three questions, one message, defaults stated out loud so you can veto them. Full mode is the one to use when nobody will be around to answer the builder's questions later.
+
 ---
 
 ## How it works
@@ -77,7 +91,13 @@ Four phases. You talk, it designs, it generates.
 | **1. Discovery** | 2–3 questions. Classifies your project into one of **14 shapes**, and asks first whether this is new code or existing code. | Answer |
 | **2. Deep dive** | Shape-specific questions. Picks the runtime track and the capabilities. The `stack-researcher` subagent verifies every version against the live registries. | Answer 3–5 |
 | **3. Architecture** | One dense message: stack table, how it fits together, what v1 includes and what it explicitly excludes, rough build phases. **Both gates run here.** | Confirm or adjust |
-| **4. Generate** | `blueprint-writer` composes, `blueprint-validator` audits until it returns PASS, files are written to `./blueprints/`. | Pick bundle or single file |
+| **4. Generate** | Picks bundle or single file from the step count and says which. Then: `blueprint-writer` composes, `blueprint-validator` audits until it returns PASS, files are written to `./blueprints/`. | Wait |
+
+### How long Phase 4 takes: 20–30 minutes, silently
+
+This is the part nobody warns you about, so here it is up front. Once you confirm the architecture, generation runs **roughly 20–30 minutes for a bundle, 10–15 for a single file**, and produces no output until it is finished. That time is real work — a live registry call for every version pin, a full composition pass, and at least one validator round trip — but from your side it looks like nothing happening.
+
+The Architect is required to tell you the estimate before it starts. If it doesn't, that's a bug. Go make coffee; what comes back is a file path and the first command to run.
 
 ### The two gates (new in v2)
 
@@ -144,7 +164,7 @@ Acceptance criteria use EARS form — **WHEN** `<trigger>` **THE SYSTEM SHALL** 
 
 ### Output layout
 
-You pick the mode in Phase 4. Both land under `./blueprints/` in your working directory.
+**The Architect picks the mode and tells you which, in one line.** It is derived from the step count — **12 steps or more gets a bundle, 11 or fewer gets a single file** — because packaging is a consequence of the design, not a question worth interrupting you for. Say so at any point and your preference wins instead. Both land under `./blueprints/` in your working directory, and both carry identical acceptance criteria and verify commands.
 
 **Bundle** — for parallel builders, multi-week builds, or resumable state:
 
@@ -426,6 +446,20 @@ Claude Code lee `CLAUDE.md` y se convierte en The Architect. Misma entrevista, m
 
 **Prerequisitos:** [Claude Code](https://claude.com/claude-code) y una suscripción a Claude. Nada más.
 
+### Elige tu camino: rápido o completo
+
+Hay dos puntos de entrada y la diferencia es real. Elige antes de empezar.
+
+| | [`/architect-quick`](commands/architect-quick.md) | [`/architect`](commands/architect.md) |
+|---|---|---|
+| **Preguntas** | 3, en un solo mensaje | 12–16, en 6–7 mensajes |
+| **Cuánto tarda, de punta a punta** | ~10 minutos | ~40–60 minutos |
+| **Úsalo cuando** | Ya sabes qué stack quieres, o el build es chico y solo quieres el plan por escrito | Vas a entregarle el resultado a un constructor autónomo y te vas a ir |
+| **Qué sacrificas** | Defaults inteligentes en todo lo que no te preguntó | Nada — pero te cuesta una hora |
+| **Qué conservas** | Los dos gates, criterios EARS, comandos de verificación, el gate de confirmación | Igual |
+
+El modo rápido es de verdad más rápido que el default de v1 — tres preguntas, un mensaje, y los defaults dichos en voz alta para que puedas vetarlos. El modo completo es el que quieres cuando nadie va a estar ahí para responderle las dudas al constructor después.
+
 ---
 
 ## Cómo funciona
@@ -437,7 +471,13 @@ Cuatro fases. Tú hablas, él diseña, él genera.
 | **1. Descubrimiento** | 2–3 preguntas. Clasifica tu proyecto en uno de los **14 shapes**, y pregunta primero si es código nuevo o código existente. | Respondes |
 | **2. Profundización** | Preguntas específicas del shape. Elige el runtime track y las capabilities. El subagente `stack-researcher` verifica cada versión contra los registros en vivo. | Respondes 3–5 |
 | **3. Arquitectura** | Un solo mensaje denso: tabla de stack, cómo encaja todo, qué incluye v1 y qué excluye explícitamente, fases de construcción. **Aquí corren los dos gates.** | Confirmas o ajustas |
-| **4. Generar** | `blueprint-writer` compone, `blueprint-validator` audita hasta dar PASS, los archivos se escriben en `./blueprints/`. | Eliges bundle o archivo único |
+| **4. Generar** | Elige bundle o archivo único según el número de pasos y te dice cuál. Luego: `blueprint-writer` compone, `blueprint-validator` audita hasta dar PASS, los archivos se escriben en `./blueprints/`. | Esperas |
+
+### Cuánto tarda la Fase 4: 20–30 minutos, en silencio
+
+Esta es la parte que nadie te advierte, así que va por delante. Una vez que confirmas la arquitectura, la generación corre **unos 20–30 minutos para un bundle, 10–15 para un archivo único**, y no produce nada hasta terminar. Ese tiempo es trabajo real — una llamada en vivo al registry por cada versión, una pasada completa de composición, y al menos una vuelta del validador — pero desde tu lado se ve como si no pasara nada.
+
+The Architect está obligado a darte el estimado antes de empezar. Si no lo hace, es un bug. Ve por un café; lo que regresa es una ruta de archivo y el primer comando que hay que correr.
 
 ### Los dos gates (nuevos en v2)
 
@@ -504,7 +544,7 @@ Los criterios de aceptación usan forma EARS — **WHEN** `<disparador>` **THE S
 
 ### Formato de salida
 
-Eliges el modo en la Fase 4. Ambos caen bajo `./blueprints/` en tu directorio de trabajo.
+**The Architect elige el modo y te dice cuál, en una línea.** Lo deriva del número de pasos — **12 pasos o más va en bundle, 11 o menos en archivo único** — porque el empaquetado es consecuencia del diseño, no una pregunta que valga la pena interrumpirte. Dilo en cualquier momento y tu preferencia gana. Ambos caen bajo `./blueprints/` en tu directorio de trabajo, y ambos llevan exactamente los mismos criterios de aceptación y comandos de verificación.
 
 **Bundle** — para constructores en paralelo, builds de semanas, o estado reanudable:
 

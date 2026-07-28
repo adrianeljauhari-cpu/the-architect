@@ -17,6 +17,7 @@ Emitted in **bundle mode** (see `questions/phase-4-generate.md`):
 └── workspace/            # copied INTO the target project root by the builder
     ├── CLAUDE.md
     ├── AGENTS.md
+    ├── <verify-critical config>   # test/e2e runner config, compose file — blueprint §19.6
     └── .claude/
         ├── settings.json
         ├── skills/<name>/SKILL.md
@@ -27,6 +28,12 @@ Emitted in **bundle mode** (see `questions/phase-4-generate.md`):
 files live in `epics/`, one directory below the bundle root, as siblings of nothing else —
 `tasks.json` sits *outside* `epics/`, beside `blueprint.md`. The builder copies the contents of
 `workspace/` into the target project root; the bundle itself stays put.
+
+`workspace/` carries agent configuration **and** every config file a `Verify` command needs to run —
+runner configs, test setup files, the local service compose file. They are real files there, never
+merely names in a directory tree. `blueprint.md` §19.6 is the rule; this template's job is to make
+sure no task's `Verify` block calls a path that exists in neither `workspace/` nor some task's
+**Files** list.
 
 ---
 
@@ -63,16 +70,26 @@ arguments.
 
 ## Sizing
 
+**`templates/blueprint-template.md` §9, "One step, one unit — the counting rule", is the single
+source of truth for how many steps a build has and how many epics they divide into.** It is restated
+nowhere, including here — read it there. What it says, in one line: one §9 step = one `tasks.json`
+task = one task block in an epic file, an epic holds 5–9 of them, and the epic count is therefore
+derived from the step count rather than chosen.
+
+What this template owns is the size of a *task*:
+
 | Rule | Value |
 |---|---|
-| Tasks per epic | **5–9** |
-| Epic file length | 150–300 lines |
 | Acceptance criteria per task | ≤ 6 (else split the task) |
 | Files per task | ≤ 5 (else split the task) |
 
-Fewer than 5 tasks means the epic is really part of its neighbour. More than 9 means it is two
-epics — split on the natural seam, which is almost always a layer boundary (data / server /
-interface) or a surface boundary (public site / authed app / admin).
+**There is no line budget on an epic file.** An earlier version of this template capped it at
+150–300 lines; that cap was unreachable at the density this same file mandates — the preamble alone
+runs ~120 lines, and a fully specified task block is 35–45 — so a conforming epic lands between
+roughly 300 and 550 lines depending on task count. The cap is gone rather than the content: the
+only way to hit it was to break the anti-DRY rule above, which is the rule that makes the file work.
+If an epic feels too long, it has too many tasks or tasks that are too big. Never shorten it by
+deleting the repeated preamble.
 
 Epics are ordered by dependency depth, not importance. `01-foundation` is always the scaffold.
 
@@ -142,8 +159,13 @@ the lockfile — read it, never guess one.
 | Lint | `{pm} lint` |
 | Test (one file) | `{pm} test {path}` |
 | {epic-specific, e.g. migrate} | `{pm} db:migrate` |
+| {local services — required if any Verify here needs one} | `{up command}` / `{down command}` |
 
 **Gate:** `{pm} typecheck && {pm} lint && {pm} test` passes before any task here is marked done.
+
+If any task below verifies against a real service, start it first with the command above. The file
+that defines it shipped in `workspace/` and is already at the project root — you do not write it,
+and you never substitute a fake for a service the acceptance criteria name.
 
 ## Directory subtree
 
@@ -258,6 +280,7 @@ waits on a human or an external service blocks the whole build behind it.
 
 - [ ] Every task in this epic is `done` in `tasks.json` — no task left `in_progress`.
 - [ ] Every `verify` command of every task in this epic passed, not just the first one.
+- [ ] No `verify` command was edited, and none was skipped because a file it names did not exist.
 - [ ] Gate command passes clean, run from the project root.
 - [ ] Every "Produced" contract above exists with the stated signature.
 - [ ] No file outside the subtree was modified.
@@ -287,6 +310,13 @@ Two corollaries worth stating outright:
   the epic shows one command and `tasks.json` holds three, the builder runs three and the epic is
   lying about what "done" costs. They run from the target project root, never from the bundle
   directory.
+- **Every path a Verify command names is authored somewhere.** Before emitting an epic, take each
+  path out of each `Verify` command and find it in this task's **Files** list, in an earlier task's,
+  or in the bundle's `workspace/`. If it is in none of the three, the gate runs a file that nothing
+  creates: the builder gets `No test files found` or `Cannot find module` and has to invent the
+  file and guess what it should assert. This is the single most common reason a bundle's own gates
+  cannot run, and it is mechanically checkable in a few seconds.
+
 - **`priority` never reorders anything.** The epic lists tasks in `tasks.json` array order, which is
   already the build order. `priority` is there so a human can answer "what falls out if we ship in a
   week" — it is not a selector, and no agent re-sorts by it.

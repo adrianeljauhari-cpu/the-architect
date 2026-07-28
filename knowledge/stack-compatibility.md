@@ -21,6 +21,13 @@ not.
    `knowledge/stack-compatibility.md` — no known-bad combinations"*, or name the conflict and the
    resolution.
 
+"No known-bad combinations" is a claim about *this table*, not about the stack. Write it as
+"none of the rows below apply", never as "no conflicts exist" — the rows here are the ones someone
+already paid for. Anything the default track mandates against itself (a linter and a styling engine
+shipped by the same track, a package manager and a scaffolder shipped by the same track) belongs in
+the runtime track's Gotchas, and the blueprint must carry those forward even when this table is
+clean.
+
 Verify anything load-bearing against the vendor's own docs before repeating it. Several of the most
 quoted incompatibilities in this space were fixed by the vendor years ago and survive only as
 folklore — see [Rules that expired](#rules-that-expired).
@@ -44,6 +51,7 @@ Each row states the conflict in terms that stay true across releases.
 
 | Conflict | What actually breaks | Do instead |
 |---|---|---|
+| Linter/formatter that parses CSS itself **+** CSS-first styling engine with custom at-rules | The linter has its own CSS parser and rejects the styling engine's at-rules (`@theme`, `@utility`, `@variant`, `@apply`) as unknown syntax. This is a **parse** error, not a lint rule, so turning rules off does not silence it and `--write` cannot fix it. It fires on the stylesheet the *scaffolder itself generated*, so the very first `lint` run of step 1 exits non-zero before a line of product code exists. It hides easily: the scaffolder often pins an older linter major that still parses the file, and the break only appears when you upgrade to the track's pinned version. Both halves are mandated by the same default track, so a stack built from the track alone always contains it. | Enable the linter's custom-at-rule parser option in the linter config *before* the first `lint` run, and treat it as part of scaffolding rather than a fix. On the TypeScript track the key is `css.parser.tailwindDirectives: true` in `biome.json` — exact key, versions, and the surrounding scaffold order are in `knowledge/runtime-tracks/ts-node.md` Gotchas. Do not resolve it by ignoring the stylesheet or disabling CSS linting: that surrenders the whole styling layer to the linter's blind spot. |
 | Utility-CSS framework **+** runtime CSS-in-JS | Two cascade and specificity models fighting over the same elements. Worse on a server-first React framework: a runtime CSS-in-JS library needs a client boundary, so every styled component silently opts out of server rendering. | Pick one. Utility CSS on the server-first track. If a design system already exists in CSS-in-JS, move it to a zero-runtime/compiled variant before porting. |
 | Two identity providers (hosted provider **+** framework auth library) | Two session cookies, two user tables, and no answer to "who is the source of truth" when they disagree. Every downstream authorization check has to pick a side. | Exactly one owns the session. Keep the second only as a federated login *into* the first. See `knowledge/capabilities/auth.md`. |
 | Long-lived process design **+** request-scoped host | A worker loop, an in-process scheduler, or an in-memory queue on a serverless host runs on your laptop and evaporates in production — no invocation, no execution. | Split the tiers: serverless web, container worker, one shared database. See `knowledge/capabilities/deployment.md`. |
@@ -111,6 +119,7 @@ build as a lint step; each exits non-zero on a hit.
 |---|---|
 | Two identity providers | The dependency manifest lists more than one auth SDK or auth library. |
 | Two styling paradigms | The manifest lists both a utility-CSS framework and a runtime CSS-in-JS library. |
+| CSS-first at-rules the linter cannot parse | The manifest lists both a CSS-parsing linter and a CSS-first styling engine, and the linter config does not enable its custom-at-rule parser option. Cheaper equivalent: run the lint command against the generated global stylesheet on a clean scaffold and require exit 0 — a blueprint whose step 1 was never executed once cannot claim this. |
 | Raw-TCP driver on an edge target | Resolve the import graph of the edge entrypoint; it must not reach a socket-based database driver. Static resolution only — no deploy needed. |
 | Two migration systems | The repo contains both an ORM migrations directory and checked-in platform schema exports. |
 | In-memory realtime state | The realtime handler module declares no module-scope mutable collection. |

@@ -22,15 +22,17 @@ horizontal rule is the deliverable.
 A blueprint may be emitted as **one file** or as a **bundle directory**. The architecture sections
 are identical in both. Only Section 19 and the task manifest differ.
 
-**The user picks the mode — `questions/phase-4-generate.md` Step 2 is the authority.** Ask in the
-main thread; never infer it. The "When to recommend" column below is what you say when you make the
-recommendation, not a rule that decides for the user. If they already stated a preference earlier in
-the conversation, honor it silently.
+**The mode is derived, not asked — `questions/phase-4-generate.md` Step 2 is the authority.** It
+comes from the §9 step count: **12 steps or more → bundle, 11 or fewer → single file**, announced in
+one line. Never ask the user which mode they want; the answer changes zero design decisions. An
+explicit preference the user volunteered earlier wins over the threshold — honor it silently. The
+table below describes what each mode *is*, so you can say why the derived answer fits; it is not a
+menu to present.
 
-| Mode | When to recommend it | Layout |
+| Mode | What it is for | Layout |
 |---|---|---|
 | **Single file** | One builder, a build measured in days, nothing to resume | `./blueprints/{project-slug}-blueprint.md` |
-| **Bundle** | Parallel builders, a build measured in weeks, or the user wants resumable state | `./blueprints/{project-slug}/` — the tree below |
+| **Bundle** | Parallel builders, a build measured in weeks, or resumable state across sessions | `./blueprints/{project-slug}/` — the tree below |
 
 **Bundle mode — this is the only layout. Do not invent a variant.**
 
@@ -44,6 +46,7 @@ the conversation, honor it silently.
 └── workspace/            # copied INTO the target project root by the builder
     ├── CLAUDE.md
     ├── AGENTS.md
+    ├── <verify-critical config>   # test/e2e runner config, compose file — §19.6
     └── .claude/
         ├── settings.json
         ├── skills/<name>/SKILL.md
@@ -54,6 +57,10 @@ the conversation, honor it silently.
 workspace/. <project-root>/` and the agent configuration is in place. That is why the files sit
 under `workspace/` rather than loose at the bundle root: loose files force the builder to reason
 about which of them belong to the blueprint and which belong to the project.
+
+`workspace/` holds more than agent configuration. **Every config file a Section 9 `Verify` command
+needs in order to run is a real file here too** — see §19.6. It mirrors the target repo layout
+exactly, so a file's path under `workspace/` is its path in the project.
 
 In bundle mode: Section 9 stays the human-readable build order, and each step is *also* a task in
 the machine-readable manifest — see `templates/tasks-schema.md`. Steps group into epics — see
@@ -182,6 +189,24 @@ and how this blueprint avoids it.}
 **Boundary rules**
 - {e.g. Nothing in `src/app/` imports from another route's folder. Shared code moves to `src/lib/`.}
 - {e.g. `src/lib/db/` is the only place that opens a database connection.}
+
+**A tree entry is documentation. Drawing a file here does not create it.** Every file in this tree
+must have exactly one of two origins, and you must be able to name which one for any file you draw:
+
+1. **A §9 step authors it** — it appears by name in that step's **Do** list, and in bundle mode in
+   that task's `files` array. One step owns it; "it gets created along the way" is not an origin.
+2. **It is emitted as a real file under `workspace/`** (§19) and lands in the project via the single
+   copy the builder runs before step 1.
+
+**Any config file a `Verify` command depends on takes origin 2 unless a step explicitly authors
+it** — test-runner config, e2e-runner config, path-alias or tsconfig-path setup, the local service
+compose file, test setup/fixture files. A file that is drawn here and written nowhere fails at the
+first gate that needs it, with `Cannot find module`, `No test files found`, or `No tests found` —
+errors that look like broken code and are actually a missing artifact, and the builder's only
+recovery is to invent the file. See §19.6, which is where those files are emitted — **and where the
+obligation continues past existence**: an emitted config that cannot resolve a package this
+blueprint mandates, or that never loads the env vars its tool reads, fails exactly like a file that
+was never written.
 
 ---
 
@@ -392,24 +417,97 @@ work that does not run.
    wrong, `git reset --hard step-{N-1}` and retry — never debug forward through a broken checkpoint.
 8. **Never skip ahead.** If step 7 is blocked, stop and report. Do not start step 8 "in the
    meantime" — later steps assume earlier gates are green.
+9. **A step may never introduce a requirement that retroactively breaks an earlier step's
+   `Verify`.** Rule 6 says the previous steps' gates must still pass; this is the design obligation
+   that makes rule 6 satisfiable, and it is on you, not the builder. Whenever step N adds a check
+   that runs inside an earlier gate — boot-time env validation, a lint or type rule, a schema
+   constraint, a CI stage, a required header — that check must hold on the tree steps 1…N leave
+   behind, with only what those steps built. Before you write step N+1, re-read every earlier
+   `Verify` block and confirm it still exits 0.
+
+   **The canonical violation is env validation.** A validator that requires every variable in §10's
+   table the moment it is written makes `build` fail from that step until every secret exists —
+   including the ones §10 itself says are not needed until step 16. The builder's only way forward
+   is to fabricate values for services it has not integrated. **So env validation degrades by step:
+   a variable is required only from the step §10's "Required by step" column names, and optional
+   before it.** The feature that consumes a variable is also the step that promotes it to required.
+   Same shape for everything else: a rule ships in the step whose code satisfies it, never earlier.
+
+10. **Never assert a derived number you did not count.** Any number a `Verify` command checks — a
+    table count, a test count, a route count, a migration count, a file count, a row count — is a
+    *derived* fact about this blueprint's own content, and it is only true if you counted it from
+    that content at write time. Writing a plausible number is not a shortcut; it is a gate that
+    fails on **every** machine, for a reason that has nothing to do with the builder's code, and
+    the builder's only recovery is to decide which of your two numbers to believe.
+
+    A blueprint shipped `\dt | grep -c` **expecting 7 tables** while §4's schema defined **8**,
+    and repeated `7` in five places. Every builder, everywhere, failed that gate at step 3.
+
+    Two obligations, both on you:
+
+    - **Count, then write.** Derive the number from the artifact it describes — count the `CREATE
+      TABLE`s in §4's schema block, the `it(`/`test(` cases in the test file the step authors, the
+      rows in §5's route table. If you cannot count it because the artifact does not exist yet
+      (a runner reports a test count only once the tests are written), you may not assert it.
+    - **One number, everywhere.** The same count appears identically in the step's **Do**, its
+      **Done when**, its `Verify` comment, §20.1's gate, and — in bundle mode — the `tasks.json`
+      and epic renderings of that criterion. Change the schema and you change all of them, in the
+      same pass. Two different numbers for one fact is a defect even when one of them is right.
+
+    **Prefer a property over a magic number wherever the property is what actually matters.** The
+    real requirement is almost never "there are exactly N tables" — it is "every table §4 defines
+    exists". Assert that instead, and the gate stops drifting the moment the schema changes:
+
+    | Brittle — breaks on every edit | Durable — asserts the property |
+    |---|---|
+    | `psql -c '\dt' \| grep -c table` → `# expect: 7` | one `\d <table>` per §4 entity, each expected to exit 0 |
+    | `# expect: 42 passed` | `# expect: exit 0, 0 failed, 0 skipped` |
+    | "the app exposes 9 routes" | each route in §5's table returns its documented status |
+    | `ls migrations \| wc -l` → `# expect: 3` | `db:migrate` exits 0 and the schema-drift check reports no diff |
+
+    A count is still legitimate where the count *is* the requirement — "exactly 1 row after a
+    replayed webhook" is a real invariant, not a tally of the blueprint's own contents. The test is
+    whether the number would have to change when the blueprint is edited. If it would, count it and
+    propagate it; better, assert the property.
 
 ### One step, one unit — the counting rule
 
-State it once, here, because three files used to count differently:
+**This subsection is the single source of truth for step counts and epic counts.**
+`templates/epic-template.md` and `templates/tasks-schema.md` point here and assert no counts of
+their own. If you are about to write a number of steps or epics anywhere else, link here instead.
 
 > **One Section 9 step = one `tasks.json` task = one task block in an epic file.**
 
 There is only ever one number. A blueprint with 14 steps has 14 tasks in `tasks.json` and 14 task
 blocks distributed across its epic files — not 14 steps and 30 tasks. Epics are a *grouping* of
-these same steps, not a finer subdivision of them: a bundle with 14 steps carries roughly 3 epics of
-4-6 steps each. If you find yourself splitting a step into sub-tasks while writing an epic, the step
-was too big — split it here in Section 9 first, renumber, and keep the three views identical.
+these same steps, not a finer subdivision of them. If you find yourself splitting a step into
+sub-tasks while writing an epic, the step was too big — split it here in Section 9 first, renumber,
+and keep the three views identical.
 
-**Range: 10-18 steps, zero to deployed.** This is the only step-count guidance in the system. It
-does not change with emission mode — mode is the user's choice (see the emission-mode block at the
-top of this template), not a function of step count. Under 10 steps usually means steps are too
-coarse to finish in one sitting; over 18 usually means the v1 scope is too wide and Section 1's
-Non-Goals table needs more rows.
+**Range: 10-18 steps, zero to deployed.** Under 10 steps usually means steps are too coarse to
+finish in one sitting; over 18 usually means the v1 scope is too wide and Section 1's Non-Goals
+table needs more rows. The range does not change with emission mode. Causality runs the other way:
+the step count you write here *determines* the mode — 12 or more emits a bundle, 11 or fewer a
+single file (`questions/phase-4-generate.md` Step 2). So never adjust a step count to reach a
+packaging you prefer; split steps on build reality and let the mode fall out.
+
+**The epic count is derived from the step count, never asserted.** One epic holds **5-9 steps**:
+fewer than 5 and it is really part of its neighbour, more than 9 and it is two epics. Split on the
+natural seam, which is almost always a layer boundary (data / server / interface) or a surface
+boundary (public site / authed app / admin). Because both ranges are fixed, the step map decides how
+many epics are legal:
+
+> At least `ceil(steps ÷ 9)` epics, at most `floor(steps ÷ 5)`.
+
+| Steps in §9 | Legal epic counts | Example splits |
+|---|---|---|
+| 10-14 | exactly **2** | 12 → 6 + 6 · 14 → 7 + 7 |
+| 15-18 | **2 or 3** | 15 → 5 + 5 + 5 · 18 → 9 + 9, or 6 + 6 + 6 |
+
+Write the step map first, then divide it. A bundle outside that table has a wrong split or a wrong
+step count — fix the split, never the rule. There is no line budget on an epic file: an epic is as
+long as its steps require, and `templates/epic-template.md` explains why it must not be compressed
+by removing its repeated preamble.
 
 ### Step map
 
@@ -487,10 +585,16 @@ git tag step-07-billing
 #### Step {N} — {Short imperative title}
 
 **Do**
-{What gets built and the exact files created or modified. Reference the sections above by number
+{What gets built and the exact files created or modified — including the tests this step's `Verify`
+runs, which are part of the step, not a by-product of it. Reference the sections above by number
 rather than restating them — "the `orders` entity from §4", "the envelope from §5", "the pinned
 version of the SDK from §11". Never restate a version pin inside a step; §11 is the only place a
-version appears.}
+version appears, and every package this step imports has an install command here or in §10.
+
+Never invent the name of a file a generator produces — migrations, codegen output, lockfiles. Tools
+name those themselves, usually with a hash or a random suffix, so a step that says
+`0006_reservations.sql` names a file that will not exist. Write "the migration `db:generate` emits"
+and describe what must be in it.}
 
 **Done when**
 - [ ] WHEN {trigger} THE SYSTEM SHALL {observable response}
@@ -598,18 +702,89 @@ The builder should create all of them before step 1, not discover them mid-build
 `.env` and `.env.*.local` are gitignored. The app validates required env vars at boot and fails
 loudly — never falls back to a default for a secret.
 
+**"Required by step" is a contract with §9, not a note.** The boot validator treats a variable as
+required only from the step named in that column and as optional before it, so that no step's
+arrival breaks an earlier step's gate (§9 rule 9). Include every variable a `Verify` command needs,
+not only the ones the product needs — the local service URLs from §19.6 belong in this table with
+their literal local values.
+
+**Listing a variable here does not load it.** The application framework reads `.env` for the
+application; nothing reads it for a standalone CLI, a migration tool, a seed script, or a test
+runner invoked outside the framework. Every such tool this blueprint's commands invoke must be
+given an explicit loading mechanism — see §19.6, *Every tool that reads env vars must be given a
+way to load them*, which is where that mechanism is written into the emitted config.
+
+### Files that must be committed
+
+{Every file this blueprint describes as *committed* — `.env.example`, the emitted §19.6 configs, a
+lockfile, a CI workflow, seed fixtures, `.claude/` — is listed here, and for each one this section
+states that the ignore file does **not** exclude it.
+
+**Scaffolders ship broad ignore patterns and they will swallow these.** A generated ignore file
+routinely carries `.env*`, `*.local`, `.claude/`, `*.config.*` or a bare `dist` glob, so a blueprint
+that says "`.env.example` is committed" in four places and never touches the ignore file has told
+the truth about intent and shipped the opposite. The failure is silent: everything works on the
+machine that generated it, and the clean-checkout premise of §20.1 quietly stops holding — the
+acceptance gate runs against a tree the builder never actually has.
+
+Write the ignore-file exception as a literal line, in the ignore file's own syntax, in the Bootstrap
+block below — a negation (`!.env.example`) placed **after** the pattern it overrides, or the removal
+of the offending pattern. Prose ("make sure `.env.example` is committed") is not an exception.}
+
+| File | Why it is committed | Ignore-file exception line |
+|---|---|---|
+| `.env.example` | {reason} | `!.env.example` after the `.env*` pattern |
+| {file} | {reason} | {literal line, or `— not matched by any ignore pattern`} |
+
 ### Bootstrap
 ```bash
-{Exact commands from clone to a running dev server with seeded data. Copy the scaffolding block
-from the runtime track verbatim.}
+{Exact commands from clone to a running dev server with seeded data, in the order they are run.
+Copy the scaffolding block from the runtime track verbatim, then add: **the version-control
+initialisation §9's checkpoints require** (see below), starting the local services from §19.6, any
+post-install approval or setup step the package manager requires, any runner asset download (browser
+binaries, native toolchains), the ignore-file exception lines from the *Files that must be committed*
+table above, and the migration + seed commands.
+
+**Bootstrap must create what the checkpoints need.** Every §9 step ends in a `git tag` Checkpoint and
+§20.1's manual gate counts those tags, so the repository has to exist before step 1 — and this block
+is the only thing that runs before step 1. **Do not assume the scaffolder created it.** Scaffolders
+initialise a repo only sometimes, skip it when they detect an enclosing one, and abort the
+initialisation entirely on any of the prompts and failure modes this blueprint already documents —
+in which case the first Checkpoint dies on `not a git repository` and every later rollback target is
+gone. Write the initialisation explicitly and idempotently, before the first command that could
+create a Checkpoint-worthy file — two literal lines, in this block, in this order:
+
+    git rev-parse --git-dir >/dev/null 2>&1 || git init -b main   # idempotent: no-op if the scaffolder already did it
+    git add -A && git commit -m "chore: scaffold" --allow-empty   # a tag needs a commit to point at
+
+Adapt the syntax to whatever version-control system §9's Checkpoints use; the obligation is the
+same — **if the build order uses version-control checkpoints, this block creates the repository and
+the first commit.** If §9 uses no checkpoints at all, say so here explicitly rather than leaving the
+question open.
+
+Every command here must be non-interactive. A command that opens a TTY prompt hangs an unattended
+build forever, which is indistinguishable from a slow one — pass the flag that answers it, and if
+no such flag exists, replace the command with one that writes the file it would have generated.
+
+**This block gets executed, verbatim, before the blueprint is presented — by the main thread, in a
+scratch directory** (`questions/phase-4-generate.md` Step 6). You are not the one who runs it: you
+have no shell. Write it so it survives that run, because whatever it does there is what the builder
+gets. A command that fails, hangs on a prompt, or leaves the directory in a state step 1 cannot use
+comes straight back to you as a finding, with the real error attached.
+
+Scaffolding tools ignore flags, abort on approval prompts, and install things they were told not to;
+every one of those is a first-gate failure and none of them are visible from reading the docs. That
+is the whole reason the block is run rather than reviewed.}
 ```
 
 ---
 
 ## 11. Dependencies
 
-**This section is the version-provenance table. It is the only place in the blueprint where a
-version number appears.**
+**This section is the version-provenance table. It is the only place in the blueprint's prose where
+a version number appears** — the one exception being the executable files emitted in §19, which must
+carry real values (an image tag in a compose file, an engine field in `package.json`). Those get a
+row here too; the file carries the value, this table carries the provenance.
 
 {Every row's `Version`, `Source` and `Checked` cells come verbatim from the `stack-researcher` report
 produced in this session — that report is the authority. For a package the researcher did not
@@ -617,19 +792,34 @@ resolve, fall back to `knowledge/runtime-tracks/{file}.md`, put that file's path
 `Last verified` date in `Checked`, and carry any unverified caveat through into `Purpose` rather
 than dropping it. **Never write a pin from memory.**
 
-A row with an empty `Source` or an empty `Checked` fails the validator (finding #10). If a version
-genuinely could not be verified, write `UNVERIFIED — verify before install` in `Source` and say so;
-an honest gap is fine, an implied verification that never happened is not.}
+A row with an empty `Source` or an empty `Checked` fails the validator — a pin that contradicts its
+own stated provenance is a BLOCKER. If a version genuinely could not be verified, write
+`UNVERIFIED — verify before install` in `Source` and say so; an honest gap is fine, an implied
+verification that never happened is not.
+
+**Every row must be traceable to the step that installs it.** The `Installed by` cell names the §10
+Bootstrap block or the §9 step number whose **Do** list carries the install command for that exact
+package — and that command must literally exist there. A pin nobody installs is not a dependency,
+it is a note: the builder reaches the step that imports the package, the import fails, and the
+version this table so carefully verified was never applied.
+
+**This is your obligation to check while writing, not a box the validator will tick for you.** Do it
+mechanically, before you consider §11 finished: for each package name in these tables, search §10's
+Bootstrap block and every §9 step's install commands. Zero hits means one of the two places is
+wrong — either add the install to the step that first imports the package, or delete the row.
+`blueprint-validator` carries a finding for exactly this shape (a §11 row whose package appears in no
+install command anywhere in the blueprint), so an untraceable row comes back to you as a FAIL and
+costs a full round trip. Catching it here costs one grep.}
 
 ### Runtime
-| Package | Version | Source (registry URL or track file) | Checked | Purpose |
-|---|---|---|---|---|
-| {package} | {pin} | {https://registry.npmjs.org/{package} — or `knowledge/runtime-tracks/{file}.md`} | {YYYY-MM-DD} | {why it's here — a package with no stated purpose gets removed} |
+| Package | Version | Source (registry URL or track file) | Checked | Installed by | Purpose |
+|---|---|---|---|---|---|
+| {package} | {pin} | {https://registry.npmjs.org/{package} — or `knowledge/runtime-tracks/{file}.md`} | {YYYY-MM-DD} | {§10 Bootstrap, or step N} | {why it's here — a package with no stated purpose gets removed} |
 
 ### Development
-| Package | Version | Source (registry URL or track file) | Checked | Purpose |
-|---|---|---|---|---|
-| {package} | {pin} | {source} | {YYYY-MM-DD} | {purpose} |
+| Package | Version | Source (registry URL or track file) | Checked | Installed by | Purpose |
+|---|---|---|---|---|---|
+| {package} | {pin} | {source} | {YYYY-MM-DD} | {§10 Bootstrap, or step N} | {purpose} |
 
 ### Deliberately not used
 | Rejected | Instead | Why |
@@ -682,7 +872,12 @@ checkable — write the ones the gates need, not a coverage number for its own s
 
 ### Test data
 {How a test database is created, seeded, and reset between runs. Tests never share mutable state
-and never depend on execution order.}
+and never depend on execution order.
+
+If any layer above runs against a real service rather than a fake, the file that provisions it
+locally and the variable that points at it are emitted in §19.6 — name them here. "Integration tests
+hit a real database" is a requirement, and a blueprint that states it without shipping the database
+turns every integration gate into an unrunnable command.}
 
 ### What is deliberately not tested
 {Name it. An untested area chosen on purpose is a decision; an untested area by accident is a bug.}
@@ -859,6 +1054,7 @@ path-scoped rules.
 ./blueprints/<project-slug>/workspace/
 ├── CLAUDE.md                    # §19.1
 ├── AGENTS.md                    # §19.2
+├── <verify-critical config>     # §19.6 — test runner, e2e runner, compose file, test setup
 └── .claude/
     ├── settings.json            # §19.3
     ├── skills/<name>/SKILL.md   # §19.4
@@ -866,13 +1062,19 @@ path-scoped rules.
 ```
 
 `workspace/` mirrors the target repo layout exactly, so the builder's first move is one copy —
-`cp -R workspace/. <project-root>/` — and the whole agent configuration is in place. Nothing else in
-the bundle gets copied into the project.
+`cp -R workspace/. <project-root>/` — and the whole agent configuration *and* every config file the
+gates need is in place. Nothing else in the bundle gets copied into the project.
+
+**Everything emitted here must pass the project's own gates.** The lint and format config the
+blueprint tells the builder to generate applies to these files the moment they land — the copy in
+§19 happens before step 1, so a space-indented `settings.json` under a tab-default formatter fails
+`lint` on the builder's first command. Match the emitted files to the conventions the blueprint
+mandates, or the blueprint's first instruction breaks the blueprint's first gate.
 
 **`.claude/commands/` is NEVER emitted — not here, not in the bundle, not in either mode.** A slash
 command only fires when a human types it, and an autonomous builder types nothing, so a scaffolded
 command is dead weight that is never invoked once. Every repeatable project workflow goes in
-`.claude/skills/{name}/SKILL.md` (§19.4), which activates on intent — the only trigger a headless
+`.claude/skills/<name>/SKILL.md` (§19.4), which activates on intent — the only trigger a headless
 build actually has. If you are about to write a `commands/` path anywhere in this blueprint, you are
 writing a defect.}
 
@@ -903,7 +1105,14 @@ most, and a pointer to CLAUDE.md as the source of truth.}
 Section 9 `Verify` block belongs in `permissions.allow` — otherwise the builder stalls on a
 permission prompt at every gate, which is exactly where an unattended build dies. Deny the things
 that should never be automatic: reading `.env`, pushing, force-pushing, destructive database
-commands.}
+commands.
+
+The skeleton below is the starting set, not the finished file. Add one `allow` entry for every
+remaining §9 `Verify` command — migrations, seeds, the service up/down commands from §19.6, project
+CLIs, `curl` to localhost — and replace the placeholder deny row with this stack's real destructive
+commands. **Emit valid JSON: every array element is a permission string. A sentence of prose inside
+the array is not a comment, it is a rule that silently never matches** — unlike a half-filled prose
+section, a half-substituted JSON file fails invisibly at runtime.}
 
 ```json
 {
@@ -917,20 +1126,18 @@ commands.}
       "Bash(git status:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git tag:*)",
-      "{other verify commands from §9 — migrations, CLI tools, curl to localhost}"
+      "Bash(git tag:*)"
     ],
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)",
-      "Bash(git push:*)",
-      "{destructive data commands for this stack}"
+      "Bash(git push:*)"
     ]
   }
 }
 ```
 
-### 19.4 `.claude/skills/{name}/SKILL.md`
+### 19.4 Project skills — `.claude/skills/<name>/SKILL.md`
 
 {One skill per repeatable project workflow — the things a builder or maintainer will do more than
 once. Typical set: `add-migration`, `add-api-route`, `add-component`, `release`. Each is a procedure
@@ -995,6 +1202,127 @@ paths:
 |---|---|---|
 | `.claude/rules/{name}.md` | {globs} | {conventions} |
 
+### 19.6 Verify-critical config and local infrastructure
+
+{**Every config file a Section 9 `Verify` command needs in order to run is emitted here as a real
+file, with complete content** — exactly the way `CLAUDE.md` and `settings.json` are. Naming it in
+§3's tree is not emitting it. This subsection is what decides whether the gates can execute at all,
+so fill it before you consider Section 9 finished.
+
+**Bundle mode:** real files under `workspace/`, at the path they occupy in the project.
+**Single-file mode:** one fenced block per file below, each labelled with its destination path.
+No placeholders, no "configure as needed" — the builder runs these, it does not finish them.
+
+| Emit | Whenever |
+|---|---|
+| Test-runner config | any `Verify` invokes the unit/integration runner |
+| E2E-runner config | any `Verify` invokes the e2e runner |
+| Test setup / env-bootstrap file | any test imports a module that validates env at import time |
+| Path-alias config | any test or source file resolves an alias the runner does not inherit |
+| Local service provisioning | any `Verify` needs a database, cache, queue, broker, or object store |
+| Any file a `Verify` command names as an argument | always — including every test file it runs |
+
+That last row is the one that fails silently. Cross-check it mechanically before emitting: **every
+path that appears in any `Verify` command must be authored by some §9 step (in bundle mode, present
+in some task's `files` array) or emitted here.** A test file the gate runs and no step writes
+returns `No test files found` and exits 1 — a green-looking spec that can never pass.
+
+#### An emitted config must be complete for the stack this blueprint chose
+
+**Emitting the file is half the obligation. The content has to work with the packages this blueprint
+mandates.** A config that exists but cannot load the modules the gates import fails exactly like a
+missing one, and worse: the builder sees a config file sitting right there and concludes the error
+must be in the code.
+
+The trap is **non-trivial resolution behaviour** in a mandated dependency. Whenever this blueprint
+requires a package that is not a plain import — one gated behind an **export condition**, one with a
+**bundler-only entry point**, one that ships a **native binary** or a platform-specific artifact, one
+that only exists after a **codegen step**, one resolved through a **path alias**, or one that is
+**ESM-only in a CommonJS context** (or the reverse) — every config that must load that package has to
+be written to handle it, in that config's own syntax.
+
+**The canonical shape, stated generically:** a module that is valid *only* under the framework's
+bundler will throw at import inside a plain test runner or a plain script runner, because those
+runners resolve modules with different conditions than the bundler does. The fix is a line in the
+runner config — the matching resolution condition, an alias to the real entry point, a stub module,
+or an exclusion from the transform. Which line depends on the runner. That there must **be** a line
+does not.
+
+The failure is total rather than partial. A single mandated import that the runner cannot resolve
+kills **every** test in **every** file that transitively reaches it, plus every seed, reset, and
+maintenance script that shares the module graph — one missing config line can take out the majority
+of the build's steps at once, all reporting an import error that names the package rather than the
+config.
+
+**Walk the emitted configs against the mandated dependency list before you consider §19.6 done.**
+For each config you emit here, and for each package §11 pins or §19.1/§9 mandates, ask one question:
+
+> *Would this config file successfully load every module the gates import?*
+
+If the answer is "yes, because the package resolves plainly", say nothing. If the answer depends on
+a condition, alias, transform, loader, or generated artifact, **write that into the config now** and
+record it in the table at the end of this subsection. Pay particular attention to any package this
+blueprint makes **mandatory by rule** — a rule of the form "every server module imports X" means X is
+in the import graph of every server-side test and script, so X's resolution requirements are the
+runner's requirements too.
+
+#### Every tool that reads env vars must be given a way to load them
+
+**A framework loads the env file. A standalone tool does not.** Application frameworks read `.env`
+automatically as part of booting, which trains everyone to assume env loading is ambient. It is not.
+Migration CLIs, schema-diff tools, seed and reset scripts, one-off maintenance scripts, test runners
+invoked outside the framework, container entrypoints and CI steps generally start with whatever is
+already exported in the shell — and in an unattended build, that is nothing.
+
+The result is the sharpest possible failure: a §9 step's **literal first command** exits non-zero and
+creates nothing, with an error about a missing connection string that the builder can only read as
+"the environment is broken", when the environment is fine and the tool was simply never told to look.
+
+**So: if a `Verify` command, a Bootstrap command, or a §9 **Do** command invokes a tool that reads an
+env var, this blueprint states the loading mechanism explicitly.** Exactly one of:
+
+| Mechanism | Where it is written | Use when |
+|---|---|---|
+| An explicit loader import at the top of the tool's own config file | the config emitted in this subsection | the tool has a config file it always evaluates — the most durable option, works from any shell |
+| A runner flag that loads the file | the command itself, everywhere it appears | the runtime supports it natively and the flag is available in every place the command is written |
+| An export line preceding the command | the same fenced block as the command | one-off shells and CI steps, where no config file is evaluated |
+
+Whichever you pick, it must appear in **every** place the command is written — §10 Bootstrap, the §9
+step, §19.1's command table, §20.1's gate — because a mechanism present in one and absent in another
+is a gate that passes for the writer and fails for the builder. Prefer the config-file loader for
+exactly this reason: it is written once and cannot be forgotten at a call site.
+
+This applies in every ecosystem. The names differ; the failure does not.
+
+#### Services a gate depends on must be provisioned by the blueprint
+
+Listing Docker in §10's prerequisites is not provisioning. If a `Verify` command needs a running
+service, emit all four of these or the step is not buildable:
+
+1. **The thing that starts it** — `docker-compose.yml` (or the platform equivalent) under
+   `workspace/`, with pinned image tags, a named volume, and a healthcheck, so the up command
+   returns only once the service accepts connections rather than racing the first test. An image tag
+   is a version pin: give the image a row in §11 with its source and check date, then write that
+   literal tag into the emitted file. §11 stays the place a version is *justified*; an emitted file
+   is executable and must carry the real value, exactly like a lockfile.
+2. **The variable that points at it** — a row in §10's environment table with its literal local
+   value (`TEST_DATABASE_URL`, `REDIS_URL`, …), the same key in `.env.example`, and a statement of
+   which store tests use. Tests never share a database with dev.
+3. **The commands** — up, down, and reset, written into §10's Bootstrap block and §19.1's command
+   table, ordered before the first `Verify` that needs them.
+4. **The permission** — those same commands in §19.3's `permissions.allow`, so an unattended gate
+   does not stall on a prompt. Never pre-approve a command for a file this blueprint does not emit.
+
+If a service genuinely cannot run locally, no `Verify` block may depend on it: move that check to
+§20.1's manual gates and say why. An unrunnable gate is worse than a missing one — it reports
+failure for a reason that has nothing to do with the code.
+
+If nothing in this subsection applies, write `NOT APPLICABLE — {reason}` and keep the heading.}
+
+| File | Path in the project | Which `Verify` commands need it | Resolution/env handling it carries |
+|---|---|---|---|
+| {file} | {path} | {step numbers} | {the export condition, alias, transform, or env loader written into it — or `none needed: every mandated package resolves plainly and this tool reads no env var`} |
+
 ---
 
 ## 20. Acceptance Gate, Risks & Decision Log
@@ -1008,15 +1336,23 @@ is the same set CI runs and the same set every Section 9 step is measured agains
 {pm} install --frozen-lockfile
 {pm} typecheck        # expect: exit 0, zero errors
 {pm} lint             # expect: exit 0, zero errors and zero warnings
-{pm} test             # expect: exit 0, {N} passed, 0 skipped
-{pm} test:e2e         # expect: exit 0, {N} flows passed
+{pm} test             # expect: exit 0, 0 failed, 0 skipped
+{pm} test:e2e         # expect: exit 0, 0 failed
 {pm} build            # expect: exit 0
 {a11y command}        # expect: 0 violations
 ```
 
+**Every expectation above is a property, not a tally** — §9 rule 10. Where a count genuinely belongs
+in this gate, it is counted from this blueprint's own content and matches the number every step and
+every epic states for the same fact. A gate that greps for a number the blueprint never computed
+fails on every machine.
+
 Plus these manual gates, each checked once before launch:
 
 - [ ] Every step in §9 has its checkpoint tag in git (`git tag -l 'step-*'` lists one per step).
+      The repository these tags live in is created by §10's Bootstrap block, not by a scaffolder.
+- [ ] Every file §10's *Files that must be committed* table names is present in a clean checkout
+      (`git ls-files --error-unmatch <path>` exits 0 for each) — no ignore pattern swallowed it.
 - [ ] If §9.1 applies: every parity row proved, the kill switch exercised once on purpose, and the
       old path still deployed and revertible.
 - [ ] Every non-goal in §1 is still un-built.

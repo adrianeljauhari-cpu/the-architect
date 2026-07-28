@@ -17,6 +17,7 @@ Emitted in **bundle mode** only (see `questions/phase-4-generate.md`):
 └── workspace/            # copied INTO the target project root by the builder
     ├── CLAUDE.md
     ├── AGENTS.md
+    ├── <verify-critical config>   # test/e2e runner config, compose file — blueprint §19.6
     └── .claude/
         ├── settings.json
         ├── skills/<name>/SKILL.md
@@ -27,6 +28,11 @@ Emitted in **bundle mode** only (see `questions/phase-4-generate.md`):
 `tasks.json` sits at the bundle root, beside `blueprint.md` — not inside `epics/` and not inside
 `workspace/`. `workspace/` is the only directory the builder copies anywhere: its whole contents go
 to the target project root. The bundle itself stays where it was generated.
+
+`workspace/` carries the config every `verify` command needs in order to run — runner configs, test
+setup files, the compose file for any service the tests hit — as real files, emitted per
+`blueprint.md` §19.6. That is why a task's `files` array does not list them: they are already at the
+project root before task one. Everything else a `verify` command names is a task's responsibility.
 
 `blueprint.md` explains *why*. `epics/*.md` explain *how*. `tasks.json` decides *what next* — it is
 the only file the builder needs to answer "where am I?" after a context reset.
@@ -103,6 +109,28 @@ One escape hatch per epic, maximum — and it never gates a task, it only annota
 `files` arrays do not intersect. Be honest about shared files — listing `src/db/schema.ts` on four
 tasks correctly forces them to serialize.
 
+**`files` and `verify` must close over each other. This is the check that decides whether a bundle
+can run at all.** Every path named in a `verify` command — the test file it executes, the config it
+loads, the fixture it reads — must be authored in exactly one of three places:
+
+1. this task's `files` array,
+2. an earlier task's `files` array, or
+3. the bundle's `workspace/`, emitted per `blueprint.md` §19.6.
+
+A path in none of the three is a gate that runs a file nothing creates. It does not fail like a bug;
+it fails like `No test files found, exiting with code 1` or `Cannot find module`, which reads as
+broken tooling, and the builder's only recovery is to invent the file and guess what it asserts —
+at which point the criterion is being graded by the code it was supposed to grade. **Test files are
+the common miss:** a task that adds a `verify` command running `tests/x.test.ts` must list
+`tests/x.test.ts` in its `files`, because writing that test is part of the task. Extract every path
+from every `verify` string and match it before emitting — it takes seconds and it is the difference
+between a bundle that builds and one that stalls on its first gate.
+
+**A `verify` command may not need a service the blueprint does not provision.** If it hits a
+database, cache, queue, or object store, `blueprint.md` §19.6 must emit the file that starts that
+service locally and §10 must define the variable pointing at it. Otherwise the command is
+unrunnable on the builder's machine — which is not a failing gate, it is an absent one.
+
 **`status` is written back immediately**, before and after the work — not batched at the end. A
 crash mid-task must leave evidence. That evidence is the `in_progress` marker, and the resume
 protocol below depends on it existing.
@@ -163,9 +191,15 @@ Four epics of a subscription SaaS, shown **mid-build** so the statuses are visib
 time every `status` is `pending`. Note that E2 (auth) and E3 (billing groundwork) both depend only
 on E1-T2, so they are two independent branches that can run at the same time.
 
-Three things to read off it: the array is already in build order, so no consumer sorts it; every
-`verify` is an array even where it holds one command; and every `acceptance` string names something
-a command in that task's own `verify` array actually decides.
+**This is an excerpt, not a bundle.** Two tasks per epic, trimmed so the graph fits on a page; a
+real epic carries 5–9. Read the *shape* off it — field types, array-not-string, path closure,
+branch structure — and never a count. `blueprint.md` §9's counting rule owns every number.
+
+Four things to read off it: the array is already in build order, so no consumer sorts it; every
+`verify` is an array even where it holds one command; every `acceptance` string names something a
+command in that task's own `verify` array actually decides; and **every test file any `verify`
+command runs appears in that task's `files`** — writing the test is part of the task, so the paths
+close over each other with nothing left to invent.
 
 ```json
 [
@@ -204,7 +238,7 @@ a command in that task's own `verify` array actually decides.
       "pnpm db:migrate",
       "pnpm test tests/db/client.test.ts"
     ],
-    "files": ["src/db/schema.ts", "src/db/client.ts", "src/lib/env.ts", "migrations/**"],
+    "files": ["src/db/schema.ts", "src/db/client.ts", "src/lib/env.ts", "migrations/**", "tests/db/client.test.ts"],
     "status": "in_progress"
   },
   {
@@ -222,7 +256,7 @@ a command in that task's own `verify` array actually decides.
       "pnpm test tests/auth/session.test.ts",
       "pnpm test:e2e tests/e2e/sign-in.spec.ts"
     ],
-    "files": ["src/lib/auth.ts", "src/app/(auth)/sign-in/page.tsx", "src/app/api/auth/[...all]/route.ts"],
+    "files": ["src/lib/auth.ts", "src/app/(auth)/sign-in/page.tsx", "src/app/api/auth/[...all]/route.ts", "tests/auth/session.test.ts", "tests/e2e/sign-in.spec.ts"],
     "status": "pending"
   },
   {
@@ -236,7 +270,7 @@ a command in that task's own `verify` array actually decides.
       "WHEN a `member` calls an owner-only action THE SYSTEM SHALL return a 403 typed error and write no rows."
     ],
     "verify": ["pnpm test tests/auth/rbac.test.ts"],
-    "files": ["src/server/organizations.ts", "src/lib/permissions.ts", "src/db/schema.ts"],
+    "files": ["src/server/organizations.ts", "src/lib/permissions.ts", "src/db/schema.ts", "tests/auth/rbac.test.ts"],
     "status": "pending"
   },
   {
@@ -250,7 +284,7 @@ a command in that task's own `verify` array actually decides.
       "WHEN the plan catalog is imported THE SYSTEM SHALL expose price ids from env, never hardcoded."
     ],
     "verify": ["pnpm db:migrate", "pnpm test tests/billing/plans.test.ts"],
-    "files": ["src/db/schema.ts", "src/server/billing/plans.ts"],
+    "files": ["src/db/schema.ts", "src/server/billing/plans.ts", "tests/billing/plans.test.ts"],
     "status": "pending"
   },
   {
@@ -268,7 +302,7 @@ a command in that task's own `verify` array actually decides.
       "pnpm test tests/billing/webhook.test.ts",
       "pnpm test tests/billing/webhook-replay.test.ts"
     ],
-    "files": ["src/app/api/webhooks/stripe/route.ts", "src/server/billing/sync.ts"],
+    "files": ["src/app/api/webhooks/stripe/route.ts", "src/server/billing/sync.ts", "tests/billing/webhook.test.ts", "tests/billing/webhook-replay.test.ts"],
     "status": "pending"
   },
   {
@@ -282,7 +316,7 @@ a command in that task's own `verify` array actually decides.
       "WHEN the viewport is under 768px THE SYSTEM SHALL collapse navigation into a drawer with no horizontal scroll."
     ],
     "verify": ["pnpm test:e2e tests/e2e/dashboard-shell.spec.ts"],
-    "files": ["src/app/(app)/layout.tsx", "src/components/nav/sidebar.tsx"],
+    "files": ["src/app/(app)/layout.tsx", "src/components/nav/sidebar.tsx", "tests/e2e/dashboard-shell.spec.ts"],
     "status": "pending"
   }
 ]
@@ -307,6 +341,14 @@ Two deliberate choices in E3-T2 worth copying:
   test against Stripe's dashboard goes in the post-build launch checklist, not in `tasks.json`.
 - Its acceptance names idempotency and the invalid-signature path, not "billing works". Each of the
   three strings maps to an assertion a listed test file makes.
+
+One thing that is deliberately *absent*: no task lists the test-runner config, the e2e-runner
+config, or the compose file for the Postgres that `pnpm db:migrate` and every integration test in
+this example need. They are not missing — they were emitted under `workspace/` (`blueprint.md`
+§19.6) and copied to the project root before `E1-T1` started, along with the `TEST_DATABASE_URL`
+that points at them. If those files had *not* been emitted, `E1-T2`'s first `verify` command would
+be unrunnable and every task downstream of it blocked, which is what "provision what the gates
+assume" means in practice.
 
 ---
 
@@ -398,6 +440,9 @@ Before emitting `tasks.json`:
 - [ ] At least one task with `dependencies: []`.
 - [ ] Every task reachable from a root — an unreachable task will never run.
 - [ ] Every `epic` value matches an emitted file in `epics/` — a sibling directory of `tasks.json`.
+- [ ] The number of distinct `epic` values is legal for the task count, per `blueprint.md` §9's
+      counting rule — at least `ceil(tasks ÷ 9)`, at most `floor(tasks ÷ 5)`. That subsection is the
+      only place these numbers live; do not re-derive them here.
 - [ ] No task exceeds 6 acceptance criteria or 5 files.
 - [ ] Every `acceptance` string is in EARS form, observable, and **decidable by a script on this
       machine during the build** — nothing waiting on a human, a store queue, a certificate
@@ -407,6 +452,18 @@ Before emitting `tasks.json`:
 - [ ] `verify` is a JSON **array** on every task, including single-command ones. Zero string values.
 - [ ] Every `verify` command is runnable **from the target project root** using only commands
       defined in the emitted `workspace/CLAUDE.md`.
+- [ ] **Every path named in every `verify` command is authored somewhere** — this task's `files`, an
+      earlier task's `files`, or an emitted file under `workspace/`. Extract the paths and match
+      them; a path in none of the three is a gate that runs a file nothing creates.
+- [ ] **Every service any `verify` command needs is provisioned by the bundle** — the file that
+      starts it locally is under `workspace/`, and the variable pointing at it is in `blueprint.md`
+      §10 and in `.env.example`. No `verify` depends on infrastructure the blueprint only mentions.
+- [ ] **Every package pinned in `blueprint.md` §11 is installed by something** — §10's Bootstrap
+      block or a named step's install command. Grep each package name across both; zero hits is a
+      defect (§11's `Installed by` column is where you check this).
+- [ ] **No task's work breaks an earlier task's `verify`.** Walk the array in order and ask of each
+      task: does it add a constraint — env validation, a lint rule, a schema check — that an earlier
+      task's gate would now fail? If so, that constraint ships too early (`blueprint.md` §9 rule 9).
 - [ ] The array is already in build order — the first task with `dependencies: []` is the one to
       build first. No consumer needs to sort it.
 - [ ] Every `status` is `pending`. No `in_progress` at emission time.
