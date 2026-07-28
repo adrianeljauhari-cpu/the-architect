@@ -78,7 +78,9 @@ Rule: `internal/` is the default and `pkg/` is the exception. Anything reachable
 ## Build order
 
 1. **Consumer brief + README first** — write the usage section before any code: three real invocations, each paired with the exact output it will print. *Done when:* `README.md` contains exactly three invocation blocks, each followed by a fenced expected-output block, and each expected output is also committed verbatim to `docs/examples/NN-<name>.txt`; a script asserts the README block and its file are byte-identical and fails on drift. Step 9 later runs these files as tests, so writing the output wrong now costs you a red build then — which is the point.
-2. **Freeze the public surface** — list every exported symbol, command, or MCP tool with its signature in one file. Everything else is internal. *Done when:* `docs/surface.md` exists and a script diffs it against the real exports, failing on drift.
+2. **Freeze the public surface** — list every exported symbol, command, or MCP tool with its signature in one file. Everything else is internal. **Split the list by what survives to runtime:** value exports (functions, classes, constants, commands, tools) in one section, type-only exports (interfaces, type aliases, enums-as-types, generics) in another. *Done when:* `docs/surface.md` exists with those two sections, and a drift check compares **like with like** — value rows against the module's runtime export names, type rows against the emitted declaration output — failing on drift in either. Say in the blueprint how the check script executes against the source: on a typed track that is a decision the runtime track owns, not one the check may assume.
+
+   **The two-section split is not tidiness; it is the difference between a gate that can pass and one that cannot.** A single flat list diffed against a runtime module namespace fails forever the moment one row is a type: types are erased before the process starts, so they are absent from the namespace no matter how correct the code is, and adding them to the namespace is impossible. This is not hypothetical — a live build stalled here, and the builder's only ways out were to delete true rows from the surface doc or to weaken the check, both of which destroy the thing the step exists to protect.
 3. **Skeleton + argument parsing** — command tree, flags, no behavior yet. *Done when:* `--help` prints the full tree and exits 0; an unknown flag prints usage to stderr and exits non-zero.
 4. **Core logic behind the surface** — implemented as a callable library, with the CLI as one thin caller. *Done when:* unit tests cover the happy path plus two failure modes, invoking core directly with no terminal involved.
 5. **Output contract** — human renderer on a TTY, `--json` for machines, diagnostics on stderr. *Done when:* `tool run --json | jq .` parses with zero stray stdout lines, and `NO_COLOR=1` output contains no escape sequences.
@@ -87,10 +89,37 @@ Rule: `internal/` is the default and `pkg/` is the exception. Anything reachable
 8. **Versioning + deprecation policy** — written down: what is public, what semver means here, how long a deprecated symbol survives. *Done when:* `VERSIONING.md` exists and CI fails a PR that changes a public signature without a release note entry.
 9. **Tested documentation** — extract examples from docs and run them. *Done when:* the docs test executes every example in `docs/examples/` and fails on any output drift.
 10. **Compatibility matrix** — CI runs the suite on every supported OS and on the oldest runtime the track declares as the floor. *Done when:* the matrix is green and the floor is stated in the package manifest, not just the README.
-11. **Packaging + distribution** — build the real artifact for the ecosystem (see table below). *Done when:* a clean container installs it in one command and `tool --version` prints the tag.
+11. **Packaging + distribution** — build the real artifact for the ecosystem (see table below). *Done when:* the artifact installs in **one** command into an environment that holds no copy of this source tree, and `tool --version` prints the tag. See *Proving the install without a container* below — either path satisfies this.
 12. **Release automation** — tag push builds, checksums, signs, generates the changelog, publishes. *Done when:* a dry run produces artifacts and a changelog with no manual step other than pushing the tag.
 13. **MCP only — transport and handshake** — support stdio and streamable HTTP; negotiate capabilities on connect. *Done when:* an MCP inspector connects over both transports, completes `initialize`, and lists every tool with its schema.
-14. **Adoption smoke test** — in a clean container with no source tree present, install the *published* artifact from the registry and run the README's first example. *Done when:* the install command exits 0, and the example's stdout byte-matches `docs/examples/01-*.txt` — with the local build directory absent from the container, so nothing can resolve to the workspace copy.
+14. **Adoption smoke test** — install the *published* artifact the way a stranger would, somewhere the source tree is not, and run the README's first example. *Done when:* the install command exits 0 and the example's stdout byte-matches `docs/examples/01-*.txt`, with the workspace unreachable from wherever the command ran. See *Proving the install without a container* below.
+
+## Proving the install without a container
+
+Steps 11 and 14 both exist to test **one property: at install and at run time, nothing resolves to the
+workspace copy.** Not "a container was used" — the container is a means. Say the property in the
+blueprint, then give whichever path the build machine can actually execute.
+
+| Path | Use it when | How |
+|---|---|---|
+| **Container** *(stronger)* | a container runtime is present | Fresh image, no bind mount of the repo, install the artifact by one command, run the example. Strongest because the OS, the toolchain and the dependency root are all new. |
+| **Pack + install into temp dirs** *(container-free)* | no container runtime — a normal laptop | Build the distributable (`npm pack`, `python -m build`, `go build`, `cargo package`), then install **that file** into a directory created **outside the repo** with `mktemp -d`, giving it its own dependency root: a temp `npm init -y` then `npm i /abs/path/tool-<version>.tgz`; a fresh virtualenv then `pip install /abs/path/dist/*.whl`; `GOBIN=$TMPDIR/bin go install`. Run the example from that directory. |
+
+Two temp directories, not one, is the honest version of the container-free path: one to build and
+hold the artifact, one to install into. It keeps the install root free of anything the build produced.
+
+Whichever path is used, these are the failure conditions — a run that skips them proves nothing:
+
+- **Never verify from the repo root**, and never from a child of it. Workspace resolution walks
+  upward; a parent `node_modules`, a `go.work`, a `.venv`, or a `pyproject.toml` above you will be
+  found and will hide the defect the step exists to catch.
+- **Never install by a link** — `npm link`, `pip install -e .`, a workspace protocol specifier, a
+  replace directive. Those resolve *to* the source on purpose; they are the opposite of this test.
+- **Install the built file by path, not the package by name**, until the artifact is actually
+  published — otherwise the registry serves you the previous release and the gate passes on old bytes.
+- **State in the blueprint which path the step takes**, and pick the container path only if the
+  target build environment is known to have a runtime. A blueprint that hard-requires a container
+  stops a builder that does not have one, and stopping is what the builder is told to do.
 
 ## Distribution by ecosystem
 
@@ -100,6 +129,10 @@ Rule: `internal/` is the default and `pkg/` is the exception. Anything reachable
 | TypeScript / Node | npm registry with provenance attestation | `npx` one-shot use, correct exports map for both module systems | `npm pack` and install the tarball, not the workspace |
 | Python | PyPI wheel + sdist | `pipx` / `uvx` for tools, extras for optional deps | Fresh virtualenv install, import in a REPL |
 | MCP server | However the host runs it — binary, `npx`, `uvx` | A copy-paste host config block in the README | Connect with an inspector before publishing |
+
+Every row's *Verify with* is the same property in that ecosystem's vocabulary: the artifact under
+test must be the packaged one, and the place it runs must not be able to see the workspace. Run it by
+either path in *Proving the install without a container*.
 
 ## Pitfalls
 
@@ -112,6 +145,8 @@ Rule: `internal/` is the default and `pkg/` is the exception. Anything reachable
 - **Too many MCP tools.** Tool names and descriptions are consumed as prompt context. Ten sharp tools beat forty thin ones; return compact structured results, not raw API dumps.
 - **Publishing from a laptop.** No provenance, no reproducibility, and one compromised machine owns your users. Release only from CI on a tag.
 - **Requiring the newest runtime.** Declare a floor, test it in the matrix, and raise it only in a major.
+- **A surface check that diffs type-only exports against a runtime namespace.** Types are erased before the process starts, so they can never appear in the module's exports — the gate fails on correct code, in both directions, forever. Compare value rows to the runtime namespace and type rows to the declaration output. Step 2 above.
+- **Verifying the packaged artifact from inside the workspace.** Every ecosystem resolves upward, so a check run in the repo (or a child of it, or through a link) silently tests the source you were trying to exclude and passes on a broken package. Steps 11 and 14 above.
 
 ## Skills for the build phase
 

@@ -145,6 +145,44 @@ drizzle/                # generated SQL migrations, committed
 - **`type` over `interface`** unless you need declaration merging. Consistency beats theology.
 - **ESM only.** `"type": "module"` in `package.json` for anything that is not a Next.js app.
 
+### Module resolution — decided once, for every loader
+
+**Write `.ts` relative specifiers. Set `allowImportingTsExtensions` and
+`rewriteRelativeImportExtensions`. That is the whole convention.**
+
+This is the one decision a blueprint on this track must not re-open, because getting it wrong
+produces two hard stops one command apart, and the second error arrives in a different tool than
+the mistake. A blueprint that mandates `.js` specifiers "because ESM requires them" is correct for
+the *emitted build* and fatal for any plain script — Node strips types but resolves specifiers
+**literally**, so `./lib.js` cannot find `lib.ts`.
+
+Verified on this machine, Node 24 / TypeScript 6.0.3:
+
+| Context | Command that exercises it | What happens |
+|---|---|---|
+| App source | the framework bundler | resolves either form |
+| Test files | the test runner | resolves either form |
+| **Standalone scripts** | `node scripts/check.ts` | `.js` → `ERR_MODULE_NOT_FOUND` · **`.ts` → runs** |
+| **Build** | `tsc -p tsconfig.build.json` | `.ts` without the flag → **`TS5097`** · with both flags → **exit 0** |
+
+With both flags set, `tsc` rewrites `./lib.ts` to `./lib.js` on emit, so the built output runs on
+plain Node with no loader. One convention, four contexts, nothing to reconcile later:
+
+```jsonc
+// tsconfig.json — the compiler options that make it work
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "allowImportingTsExtensions": true,      // lets source say ./lib.ts
+    "rewriteRelativeImportExtensions": true  // emits ./lib.js so dist/ runs bare
+  }
+}
+```
+
+**Do not** solve this per-script with a loader hook, and do not let one context use `.js` while
+another uses `.ts`. If a blueprint on this track states any import convention at all, it fills the
+resolution convention matrix in its §19.6 with these four rows and this answer.
+
 ## Testing / Lint / Build commands
 
 | Task | Command |

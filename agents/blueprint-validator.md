@@ -1,6 +1,6 @@
 ---
 name: blueprint-validator
-description: Adversarially audits a finished blueprint bundle and returns PASS or FAIL with line-referenced findings. Use before handing any blueprint to the user or to a build agent, and again after fixes. Read-only, Grep-driven, no shell. Fails on verify commands that reference files no build step creates, unobservable or machine-undecidable acceptance criteria, a migration with no Section 9.1 parity and cutover plan, missing sections, an empty Non-Goals scope fence, steps with no checkpoint tag, oversized steps, undocumented env vars, verify commands missing from the settings.json allowlist, dangling references, bad skill references, surviving placeholders, invented filenames for tool-generated artifacts, workspace files that fail the blueprint's own linter, pins that imply verification that never happened, pins that no step ever installs, a step that retroactively breaks an earlier step's verify gate, an emitted runner config that cannot resolve a package the blueprint mandates, a standalone tool reading env vars nothing loads, an asserted count that disagrees with the blueprint's own content, checkpoint tags with no repository initialisation, an ignore file excluding a file the blueprint calls committed, and a tasks.json that does not match its epics. Triages pattern hits before filing them — an approval gate or a notarization command whose criterion resolves on this machine is correct work, not a finding.
+description: Adversarially audits a finished blueprint bundle and returns PASS or FAIL with line-referenced findings. Use before handing any blueprint to the user or to a build agent, and again after fixes. Read-only, Grep-driven, no shell. Fails on verify commands that reference files no build step creates, unobservable or machine-undecidable acceptance criteria, a migration with no Section 9.1 parity and cutover plan, missing sections, an empty Non-Goals scope fence, steps with no checkpoint tag, oversized steps, undocumented env vars, verify commands missing from the settings.json allowlist, dangling references, bad skill references, surviving placeholders, invented filenames for tool-generated artifacts, workspace files that are malformed or unignorable under the blueprint's own linter config (formatter *execution* is handed to the main thread's smoke test, not guessed at here), pins that imply verification that never happened, pins that no step ever installs, a step that retroactively breaks an earlier step's verify gate, an emitted runner config that cannot resolve a package the blueprint mandates, a standalone tool reading env vars nothing loads, an asserted count that disagrees with the blueprint's own content, checkpoint tags with no repository initialisation, an ignore file excluding a file the blueprint calls committed, and a tasks.json that does not match its epics. Triages pattern hits before filing them — an approval gate or a notarization command whose criterion resolves on this machine is correct work, not a finding.
 tools: Read, Grep
 model: sonnet
 ---
@@ -68,7 +68,7 @@ There is no "PASS with reservations". There is no partial credit.
 | 19 | A blueprint whose §1 or §9 describes a **migration** — framework, database, provider, language, or cutover — with **no §9.1**, or a §9.1 **missing any of its required parts** | BLOCKER |
 | 20 | A **verify command that references a file no step creates** — a test file, runner config, fixture, helper, script or compose file named in a Verify block, a `verify` array, or the §20.1 gate, appearing in no task's `files[]` and produced by no earlier step | BLOCKER |
 | 21 | An **invented filename for a generated artifact** — a migration, codegen output, lockfile, hashed bundle or snapshot written as a literal path when the tool that emits it chooses the name | MAJOR — BLOCKER when a verify command, an acceptance criterion, or a task's `files[]` depends on that literal name |
-| 22 | A **`workspace/` file that fails the blueprint's own formatter or linter** — the bundle's first instruction breaking the bundle's first gate | MAJOR |
+| 22 | A **`workspace/` file that is malformed for its own format, or that the blueprint's own linter config neither covers nor excludes** — the bundle's first instruction breaking the bundle's first gate. Sweep 12 decides this statically; *running* the formatter belongs to Step 6, never to an inferred default | MAJOR |
 | 23 | A **§11 pin that no step installs** — a package in the Dependencies table whose name appears in no §10 Bootstrap command and in no step's install command | MAJOR — BLOCKER when a step's code, verify command or `files[]` depends on that package |
 | 24 | A **step that retroactively breaks an earlier step's `Verify`** — a requirement introduced at step N that makes a step < N's gate fail on the tree steps 1…N-1 leave behind. Boot-time env validation demanding variables §10 assigns to a later step is the canonical shape | BLOCKER |
 | 25 | An **emitted config that cannot load a module the gates import** — the blueprint mandates a package with non-default resolution behavior (an export-condition guard, an ESM-only package under a CJS runner, a transform-requiring or native module, an aliased path) and the §19.6 runner/loader config it emits declares nothing that handles it | BLOCKER |
@@ -547,48 +547,66 @@ by filename. Also check the reverse contradiction: a blueprint that says a gener
 "never edited by hand" and then gives two tasks that hand-author files in it is finding #5, MAJOR —
 the builder cannot satisfy both.
 
-### Sweep 12 — the workspace files against the blueprint's own gates
+### Sweep 12 — the workspace files against the blueprint's own gates (split: you read, Step 6 runs)
 
 §19 tells the builder to copy `workspace/` into the project root as its **first** action, so those
-files are in the tree when §9 step 1 runs lint. `Read` each file under `workspace/` and compare it to
-the formatter and linter configuration the blueprint mandates.
+files are in the tree when §9 step 1 runs lint. A `workspace/` file that violates the blueprint's own
+formatter is therefore a real defect — finding #22 — and it is worth catching: in a live run, actually
+executing the mandated formatter over `workspace/` found two mismatches that reading had not.
 
-| Check | Where the rule comes from |
-|---|---|
-| Indent character and width | **the config this blueprint actually mandates** — the file §10's Bootstrap and §9 step 1 leave on disk, not the formatter's bare-`init` default |
-| Quote style, trailing commas, final newline, line width | same config |
-| Any linter rule that applies to the file type | the linter §9 mandates |
-| Excluded paths | if a workspace file cannot conform, the emitted linter config must exclude its path — an exclusion promised only in prose does not exist |
+**That last sentence is the point of this rewrite.** You have no shell, so you cannot run the
+formatter; and where the blueprint emits both the config *and* the files judged against it, reading
+one against the other is self-referential — the writer's bytes checked against the writer's rules with
+the one arbiter, the tool, absent. So this sweep is **split, and each half has a named owner.** Do
+your half exactly. Hand the other half over by name — **a check nobody can perform is worse than no
+check**, because it reads as done.
 
-A mismatch is finding #22, MAJOR: the bundle's own first instruction breaks the bundle's own first
-gate, and the builder's first command output is a lint failure in a file it did not write. Report all
-mismatches as one finding.
-
-**Establish the mandated config before you judge a single byte — the answer is blueprint-specific and
-you must not carry one in from memory.** Resolve it in this order, and say in the clean list which
+**First, establish which config governs.** Both halves need it. Resolve in this order and name the
 source you used:
 
-1. **A config file the blueprint emits** (in §19.6 or under `workspace/`) — authoritative, it is
+1. **A config file the blueprint emits** (§19.6 or under `workspace/`) — authoritative; it is
    literally the bytes the builder will have.
-2. **The config a scaffold command in §10 generates.** Scaffolders write their own config, and most
-   formatters **refuse to overwrite an existing one** — so an `init` command that runs after a
-   scaffold changes nothing, and the scaffold's values are what govern. Read §10's Bootstrap block
-   and the runtime track it was copied from; the track states what its scaffold flag produces.
+2. **The config a scaffold command in §10 generates.** Scaffolders write their own, and most
+   formatters **refuse to overwrite an existing one** — so an `init` that runs after a scaffold
+   changes nothing and the scaffold's values govern. Read §10's Bootstrap and the runtime track it
+   came from; the track states what its scaffold flag produces.
 3. **Any explicit override §9 tells the builder to write into that config.**
-4. **Only when 1–3 are all silent:** the tool's documented default for a config it actually created —
-   and name the default you applied, so a wrong assumption is visible rather than buried.
+4. Only when 1–3 are silent: the tool's documented default *for a config it actually created* — and
+   name the default you applied, so a wrong assumption is visible rather than buried.
 
-The principle, and the only thing to apply literally: **an emitted `workspace/` file must match
-whatever formatting configuration this blueprint mandates.** Do not apply a remembered default as if
-it were the rule. A validator that assumes "the formatter's init defaults to tabs, so a
-space-indented `settings.json` fails" will file a **false MAJOR against a correct file** whenever the
-blueprint's scaffold generated a space-indented config the init command then declined to overwrite —
-which is the default path for at least one runtime track in this repo. The direction of the mismatch
-is never fixed; only the requirement to agree with the mandated config is.
+#### Your half — statically decidable, file it as usual
 
-You have no shell and cannot run the formatter — judge from the config the blueprint specifies and
-the bytes in front of you. If you cannot determine which config governs, file MINOR asking the writer
-to state it, never MAJOR on a guessed default.
+| Static check | Finding |
+|---|---|
+| A `workspace/` file is **not valid for its own format** — JSON that does not parse, YAML indented with a tab, a duplicated key or table | #22, MAJOR. Not a style question: the file is broken before any formatter sees it |
+| §9 or §20.1 runs a formatter/linter and **no config for it is emitted or generated anywhere** — nothing in §19.6, no scaffold command in §10 that produces one | #20, BLOCKER — a gate invoking a tool whose config nobody creates |
+| A `workspace/` file cannot conform and the emitted linter config **does not exclude its path** | #22, MAJOR — an exclusion promised only in prose does not exist |
+| The emitted config contradicts itself, or contradicts an override §9 tells the builder to write into it | #5, MAJOR |
+| A `workspace/` file is emitted under a path the mandated config **does not cover at all** (outside every include glob) while §9 claims the gate checks it | #5, MAJOR — quote both |
+| The governing config **cannot be identified** from §19.6, §10's scaffold or a §9 override | MINOR, asking the writer to state it |
+
+#### Not your half — hand it to the main thread, by name
+
+Whether a conforming-*looking* file actually passes is decided by running the tool, and exactly one
+participant in this flow has a shell: **the main thread, in `questions/phase-4-generate.md` Step 6.**
+Put the handoff in your report — in *Checked and clean*, or as a MINOR if `workspace/` is large — so
+it is on the record rather than assumed:
+
+> Sweep 12, static half clean (N `workspace/` files parse; governing config is `<file>`, resolved
+> from `<§19.6 | the §10 scaffold | a §9 override>`). **Formatter execution over `workspace/` is owed
+> by Step 6** — run `<the check command the blueprint itself mandates>` against the copied
+> `workspace/` tree.
+
+Name the command **the blueprint mandates**, not one you picked. If §20.1 or §9 step 1 already runs
+that command over the whole tree, say so: the handoff is then already scheduled, and Step 6 need only
+copy `workspace/` in before running it.
+
+**Never file MAJOR on an indent width you inferred.** The direction of a formatting mismatch is not
+fixed and a tool's defaults are not the rule. A validator that reasons "the formatter's init defaults
+to tabs, so this space-indented `settings.json` fails" files a **false MAJOR against a correct file**
+whenever the scaffold generated a space-indented config the init then declined to overwrite — the
+default path for at least one runtime track in this repo. A check performed on a guess is worse than
+one skipped: it arrives with a line number and looks true.
 
 ### Sweep 13 — every §11 pin is installed by some step (both modes)
 
@@ -914,9 +932,10 @@ tagged) · §20.1 gate (present, 7 runnable commands) · §19.1 CLAUDE.md (172 l
 (31/31 paths in verify commands and gate commands are created by a step or shipped in `workspace/`;
 `vitest.config.ts` in E1-T1 `files[]`, `playwright.config.ts` in E1-T3, `docker-compose.yml` in
 `workspace/`, `playwright install` present in §10)** · generated artifacts referred to by producer,
-not filename (3 migrations, 0 literal names) · workspace files conform to the mandated formatter
-(4/4, 2-space per the `biome.json` the §10 scaffold generated — `biome init` declined to overwrite
-it, so the scaffold's config governs) · **§11 pins installed by a step (24/24: 19 by the §10
+not filename (3 migrations, 0 literal names) · workspace files, static half (4/4 parse; governing
+config is the `biome.json` the §10 scaffold generated — `biome init` declined to overwrite it — and
+its include globs cover all 4; **formatter execution over `workspace/` is owed by Step 6: run
+`pnpm biome check .` against the copied tree**) · **§11 pins installed by a step (24/24: 19 by the §10
 Bootstrap block, 5 by steps 3, 6 and 11; 0 orphans)** · **no step breaks an earlier gate (env
 validation lands in step 2 and requires only the 3 variables §10 marks "Required by step ≤ 2"; the
 other 12 stay optional until their own step)** · **emitted configs resolve every mandated import

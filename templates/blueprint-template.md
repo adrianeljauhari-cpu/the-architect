@@ -53,10 +53,11 @@ menu to present.
         └── rules/<name>.md
 ```
 
-`workspace/` exists so the builder copies **one directory** into the target project root — `cp -R
-workspace/. <project-root>/` and the agent configuration is in place. That is why the files sit
-under `workspace/` rather than loose at the bundle root: loose files force the builder to reason
-about which of them belong to the blueprint and which belong to the project.
+`workspace/` exists so the builder copies **one directory** into the target project root — one
+guarded copy and the agent configuration is in place. That is why the files sit under `workspace/`
+rather than loose at the bundle root: loose files force the builder to reason about which of them
+belong to the blueprint and which belong to the project. **The copy is written as a re-runnable
+command** — see §19, *The workspace copy must be safe to re-run*.
 
 `workspace/` holds more than agent configuration. **Every config file a Section 9 `Verify` command
 needs in order to run is a real file here too** — see §19.6. It mirrors the target repo layout
@@ -89,6 +90,21 @@ Resume is manual. One file to send, paste, or commit anywhere — that is the wh
 4. **Section numbering is fixed.** All 20 sections appear even when a section is not applicable —
    write `NOT APPLICABLE — {reason}` under the heading instead of deleting it. Downstream tools
    index by number.
+
+   **A `NOT APPLICABLE` section may never be the source of a contract a later step depends on.** If
+   a §9 step says "produce output matching the format in §7" and §7 reads `NOT APPLICABLE`, the
+   format exists nowhere: the builder invents 100% of it, and every later step that measures against
+   "the contract" is measuring against the invention. A real blueprint did exactly this — step 2 was
+   told to commit two human-readable outputs *"byte-exact, as the contract later steps are measured
+   against"*, while both sections that would have defined that format were `NOT APPLICABLE` and
+   redirected elsewhere, and not one line of the format appeared anywhere in 1,967 lines.
+
+   So before you mark a section `NOT APPLICABLE`, grep your own output for every reference to it —
+   by number (`§7`, `Section 7`) and by name. Every hit is a defect with exactly two fixes and no
+   third: **give the section real content** (it was applicable after all), or **move the contract to
+   a concrete place** — a fenced block in the step itself, a fixture file emitted in §19.6, a table
+   in a section that does apply — and point the step at that place, with the literal content
+   present. A live cross-reference into a `NOT APPLICABLE` section is never left standing.
 5. **Be opinionated.** Every table row with a "Why" column gets a real reason, not a restatement.
    "Postgres — because it's a database" is a defect.
 6. **Language.** Write the blueprint in the user's language. Keep code, commands, file paths,
@@ -189,6 +205,14 @@ and how this blueprint avoids it.}
 **Boundary rules**
 - {e.g. Nothing in `src/app/` imports from another route's folder. Shared code moves to `src/lib/`.}
 - {e.g. `src/lib/db/` is the only place that opens a database connection.}
+
+**If any boundary rule states how modules refer to each other** — a specifier or extension form, a
+path alias, an import-order or barrel-file rule, a link mode — it is a *resolution convention*, and
+it is only half-written here. **Reconcile it against every context that loads those modules, in
+§19.6's resolution convention matrix**, and repeat the resolved form here only by pointing at that
+table. A convention stated in this section and never checked against the script runner, the test
+runner, and the compiler is the single most expensive defect a directory-structure section can
+carry: it reads as a tidy rule and it stops two build steps dead.
 
 **A tree entry is documentation. Drawing a file here does not create it.** Every file in this tree
 must have exactly one of two origins, and you must be able to name which one for any file you draw:
@@ -470,6 +494,50 @@ work that does not run.
     whether the number would have to change when the blueprint is edited. If it would, count it and
     propagate it; better, assert the property.
 
+11. **A `Verify` command exits 0 when the step is correct.** That is the entire signal a runner has.
+    CI, the resume protocol, and any wrapper that chains steps read a non-zero exit as *this gate
+    failed* — none of them can distinguish "the tool errored" from "the tool correctly errored".
+
+    So the trap is testing a **documented error path**, which is a legitimate thing to gate: exit
+    codes are a public interface, §5 may enumerate them, and the natural way to write the check is
+    the way that breaks the build.
+
+    | Silently fails the gate | Correct — the line itself exits 0 |
+    |---|---|
+    | `mytool --bad-flag`  `# expect: exit 2` | `mytool --bad-flag; test $? -eq 2`  `# expect: exit code 2 → this line exits 0` |
+    | `mytool query 'no-such-tag'`  `# expect: exit 1, no results` | `mytool query 'no-such-tag'; test $? -eq 1`  `# expect: exit code 1 → this line exits 0` |
+    | `grep -q FIXME out.txt`  `# expect: no match` | `! grep -q FIXME out.txt`  `# expect: no match → exits 0` |
+    | `curl -f localhost:3000/missing`  `# expect: 404` | `test "$(curl -s -o /dev/null -w '%{http_code}' localhost:3000/missing)" = 404` |
+
+    **Assert the code; never let the failure escape.** The expected code stays visible in the
+    command or the comment — the point is not to hide it, it is to make the *assertion* the thing
+    that decides the exit status. Read every `Verify` block top to bottom before you emit it and
+    confirm that a correct step leaves the block with status 0, including under `set -e`.
+
+12. **A check must be possible in the medium it runs in.** Before writing any `Done when` or
+    `Verify`, confirm the property is *observable* by the thing doing the observing. A runtime check
+    cannot see constructs erased before runtime — types, interfaces, type-only exports, macros,
+    comments, stripped annotations, dead-code-eliminated branches. A static parse cannot see a value
+    computed at runtime. A type check cannot see I/O. A linter cannot see network behaviour. A
+    snapshot cannot see a race.
+
+    A blueprint asked a script to compare a **runtime module namespace** against a documented export
+    surface whose rows were largely **type-only**. Types are erased at runtime, so the runtime object
+    could never contain them: the check failed in one direction and, inverted, failed in the other.
+    It was unsatisfiable in principle — and the builder's only way past it was to rewrite the check,
+    which means the gate proved whatever the builder decided it proved.
+
+    When the property is not observable in that medium there are exactly two moves and no third:
+
+    | Move | Example |
+    |---|---|
+    | **Change the medium** | assert type-only exports with the type checker or a static parse of the source, not with a runtime import |
+    | **Change the property** | assert only the runtime-visible subset, and say in the criterion that it *is* the subset |
+
+    State the medium in the criterion when it is not obvious — "WHEN `{typecheck command}` runs" and
+    "WHEN `{script command}` runs" are different gates with different visibility. Never emit a check
+    the medium cannot decide.
+
 ### One step, one unit — the counting rule
 
 **This subsection is the single source of truth for step counts and epic counts.**
@@ -590,6 +658,13 @@ runs, which are part of the step, not a by-product of it. Reference the sections
 rather than restating them — "the `orders` entity from §4", "the envelope from §5", "the pinned
 version of the SDK from §11". Never restate a version pin inside a step; §11 is the only place a
 version appears, and every package this step imports has an install command here or in §10.
+
+**Never point a step at a section you marked `NOT APPLICABLE`.** A reference is only load-bearing if
+the referent has content: "the format defined in §7" is an instruction when §7 defines a format and
+an invitation to invent one when §7 says `NOT APPLICABLE`. If this step needs a contract — an output
+format, a schema, a fixture, a wire shape — that contract exists concretely somewhere before this
+step reads it: a fenced block in the step itself, a file emitted in §19.6, or a table in a section
+that does apply. Check every `§N` you write in this step against what §N actually contains.
 
 Never invent the name of a file a generator produces — migrations, codegen output, lockfiles. Tools
 name those themselves, usually with a hash or a random suffix, so a step that says
@@ -761,6 +836,16 @@ Adapt the syntax to whatever version-control system §9's Checkpoints use; the o
 same — **if the build order uses version-control checkpoints, this block creates the repository and
 the first commit.** If §9 uses no checkpoints at all, say so here explicitly rather than leaving the
 question open.
+
+**Every command here must be safe to run twice.** Bootstrap is the first thing a stuck builder
+re-runs, so treat re-running it as a supported path, not an accident: guard the version-control
+initialisation as shown above, use the idempotent form of every scaffold and migration command, and
+— most importantly — **guard the `workspace/` copy** (§19). An unguarded recursive copy over an
+already-bootstrapped tree silently reverts every file §19.6 emitted, and if the package manifest is
+one of them the tree loses every dependency the build installed. The failure surfaces one command
+later as a missing binary, which reads as a broken install, so the builder reinstalls tooling
+instead of restoring the manifest. Write the copy in its non-clobbering form and put the reason in a
+trailing comment.
 
 Every command here must be non-interactive. A command that opens a TTY prompt hangs an unattended
 build forever, which is indistinguishable from a slow one — pass the flag that answers it, and if
@@ -1061,9 +1146,30 @@ path-scoped rules.
     └── rules/<name>.md          # §19.5
 ```
 
-`workspace/` mirrors the target repo layout exactly, so the builder's first move is one copy —
-`cp -R workspace/. <project-root>/` — and the whole agent configuration *and* every config file the
-gates need is in place. Nothing else in the bundle gets copied into the project.
+`workspace/` mirrors the target repo layout exactly, so the builder's first move is one copy — and
+the whole agent configuration *and* every config file the gates need is in place. Nothing else in
+the bundle gets copied into the project.
+
+**The workspace copy must be safe to re-run, and this blueprint writes the guard.** Re-running
+bootstrap is the most natural recovery action a stuck builder has, and a bare `cp -R workspace/.
+<project-root>/` over an already-bootstrapped tree overwrites every file the build has since
+changed. **The expensive case is the package manifest**, which §19.6 emits: the copy reverts it to
+the dependency-free version it had before install, taking every dependency entry with it. Nothing
+reports an error at that moment. The *next* command fails naming a missing binary — which reads as a
+broken install, not a clobbered manifest — so the builder reinstalls tooling, gets the same failure,
+and burns the step on the wrong problem.
+
+Write the copy so a second run is a no-op on anything already present, in one of these forms, and
+put the reason in a trailing comment so nobody "simplifies" it back:
+
+| Guard | Command shape | Use when |
+|---|---|---|
+| Copy only what is missing | `cp -Rn workspace/. <project-root>/`  `# -n: never clobber a file the build has since changed` | the platform's `cp` supports `-n` |
+| Gate on a marker | `[ -e <project-root>/.workspace-applied ] \|\| { cp -R workspace/. <project-root>/ && touch <project-root>/.workspace-applied; }` | portability matters, or the copy must happen exactly once |
+| Copy, then re-derive | copy unconditionally, then re-run the install/regenerate command that rebuilds whatever the copy overwrote | the overwritten files are all machine-generated |
+
+Whichever form you choose, name in one line **which files are deliberately never overwritten** —
+the package manifest and the lockfile, at minimum, once anything has been installed.
 
 **Everything emitted here must pass the project's own gates.** The lint and format config the
 blueprint tells the builder to generate applies to these files the moment they land — the copy in
@@ -1227,6 +1333,50 @@ path that appears in any `Verify` command must be authored by some §9 step (in 
 in some task's `files` array) or emitted here.** A test file the gate runs and no step writes
 returns `No test files found` and exits 1 — a green-looking spec that can never pass.
 
+#### A resolution convention is decided once and reconciled against every loader
+
+**Whenever this blueprint states an import, include, or link convention — a module specifier or
+extension form, a path alias, a package-export condition, a barrel-file rule, a link mode — that
+convention is a contract with *every* resolver in the project, and the resolvers do not agree with
+each other by default.** Deciding it once for the application source and repeating that decision in
+four places is not deciding it; it is asserting it four times against one of the four consumers.
+
+**The observed failure was a plain script, not a test.** A blueprint mandated one specifier form
+throughout the source tree, restated in four separate sections. The application's compiler was
+configured for it and accepted it. Then a standalone script imported that source: the bare runtime
+strips types but resolves specifiers **literally**, found nothing at the mandated path, and died
+with a module-not-found error. Switching the script to the other specifier form made the **compiler**
+reject it, because the compiler config this blueprint emitted lacked the one flag that permits that
+form. Neither form worked in both contexts. The blueprint never noticed the second context existed,
+and the two build steps gated on that script were unbuildable — the same root cause blocking two
+separate steps, in a build with no services and no environmental excuses.
+
+**So enumerate the contexts.** There are always at least four, and every one of them is a loader
+with its own rules:
+
+| Context | Resolved by | What you must confirm |
+|---|---|---|
+| **Application source** | the framework's or compiler's resolver | the convention holds, and you can name the config setting that makes it hold |
+| **Test files** | the test runner's resolver | the runner config carries the matching alias, condition, or transform |
+| **Standalone scripts** | the bare runtime — no framework, no bundler, often no compiler | the specifier form the runtime resolves **literally**, *and* any config flag the compiler needs so the same file still type-checks |
+| **Build / bundle** | the bundler or the emitting compiler | the convention survives into the emitted output and the output still resolves |
+
+Add a row for every additional loader this project has: a lint plugin that resolves imports, a
+codegen tool that reads the source tree, a container entrypoint, a docs extractor, a REPL.
+
+**If one context needs a different setting, the config emitted for THAT context carries it, and the
+matrix below says so — here, next to the convention, not three sections away.** A compiler flag that
+permits the script's specifier form belongs in the compiler config this subsection emits, written
+into the file, not described in a sentence in §9. The builder who hits the error is reading the
+error and the file, not the blueprint's table of contents.
+
+**The self-check, one pass, before §19.6 is done:** for every row of the matrix, name the literal
+command that exercises it — the build command, the test command, the script invocation, the bundle
+command — and confirm the convention works under that exact command with only the configs this
+blueprint emits. **A context you cannot name a command for is a context you have not checked.** This
+is the same obligation as *An emitted config must be complete* below, extended from test runners to
+every loader, and it is the one that was missed.
+
 #### An emitted config must be complete for the stack this blueprint chose
 
 **Emitting the file is half the obligation. The content has to work with the packages this blueprint
@@ -1323,6 +1473,29 @@ If nothing in this subsection applies, write `NOT APPLICABLE — {reason}` and k
 |---|---|---|---|
 | {file} | {path} | {step numbers} | {the export condition, alias, transform, or env loader written into it — or `none needed: every mandated package resolves plainly and this tool reads no env var`} |
 
+#### Resolution convention matrix
+
+{**Required whenever this blueprint states any import, include, or link convention anywhere** — §3's
+boundary rules, §19.1's conventions, a §9 step, a §19.5 rule file. One row per context that loads
+project modules, no row omitted because it "obviously works". If this blueprint states no resolution
+convention at all, write `NOT APPLICABLE — this blueprint states no import or link convention.` and
+keep the heading.}
+
+**The convention, stated once:** {the literal form — the exact specifier shape, alias prefix, or
+extension rule — written here and referenced from everywhere else, never restated}
+
+| Context | Command that exercises it | Convention as it appears there | Config + literal setting that makes it work |
+|---|---|---|---|
+| Application source | `{build or dev command}` | {the specifier form} | {file — the setting} |
+| Test files | `{test command}` | {form} | {file — the setting} |
+| Standalone scripts | `{the actual script invocation}` | {form the bare runtime resolves} | {file — the setting, including any compiler flag the same file needs to type-check} |
+| Build / bundle | `{build command}` | {form} | {file — the setting} |
+| {additional loader} | `{command}` | {form} | {file — the setting} |
+
+{Every "Config + literal setting" cell names a file this blueprint emits or a step authors, and the
+setting is present in that file's content above. A cell reading "works by default" is only honest
+when you can say which resolver's default it is.}
+
 ---
 
 ## 20. Acceptance Gate, Risks & Decision Log
@@ -1347,12 +1520,20 @@ in this gate, it is counted from this blueprint's own content and matches the nu
 every epic states for the same fact. A gate that greps for a number the blueprint never computed
 fails on every machine.
 
+**Every line above exits 0 on a correct build** — §9 rule 11. This gate is read by a runner, so a
+check whose correct outcome is a non-zero exit is wrapped in an assertion (`{cmd}; test $? -eq 2`)
+rather than written bare; the expected code stays in the comment. And every line is decidable in the
+medium it runs in — §9 rule 12. A gate command that cannot pass, or cannot fail, is not a gate.
+
 Plus these manual gates, each checked once before launch:
 
 - [ ] Every step in §9 has its checkpoint tag in git (`git tag -l 'step-*'` lists one per step).
       The repository these tags live in is created by §10's Bootstrap block, not by a scaffolder.
 - [ ] Every file §10's *Files that must be committed* table names is present in a clean checkout
       (`git ls-files --error-unmatch <path>` exits 0 for each) — no ignore pattern swallowed it.
+- [ ] §10's Bootstrap block has been re-run once on an already-bootstrapped tree and changed nothing
+      that mattered: the package manifest still lists every installed dependency and the next
+      command still finds its binaries. This proves the guarded `workspace/` copy (§19) holds.
 - [ ] If §9.1 applies: every parity row proved, the kill switch exercised once on purpose, and the
       old path still deployed and revertible.
 - [ ] Every non-goal in §1 is still un-built.

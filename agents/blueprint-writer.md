@@ -108,7 +108,16 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
      emitted config must resolve every package this blueprint mandates, and every env-reading tool
      it configures must be given a loader. See *An emitted config must load what the blueprint
      mandates* and *Every env-reading tool needs a loader*; §19.6's table records what each file
-     carries.
+     carries. **And if the blueprint states any import/link convention, §19.6's resolution
+     convention matrix is mandatory** — see *One convention, every loader*, the defect that cost two
+     hard stops in a build that had nothing else wrong with it.
+
+     **The copy command itself is part of what you write.** §19 tells the builder to copy this
+     directory into the project root; write that copy in its **non-clobbering** form and say why in
+     a trailing comment. Bootstrap is what a stuck builder re-runs, and a bare recursive copy over
+     an already-bootstrapped tree reverts the package manifest you emitted to its dependency-free
+     version — after which the next command fails naming a missing binary and reads as a broken
+     install. See *The workspace copy must be idempotent*.
 
    **Every workspace file must pass the blueprint's own gates.** §19 tells the builder to copy this
    directory into the project root as its *first* action — so the very next `lint`/`format --check`
@@ -138,8 +147,8 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
     for exactly what "identical" means, because the two templates render the same criterion
     differently on purpose and a literal byte match is impossible.
 11. **Sweep your own output.** Re-read what you wrote and grep for surviving placeholders. Then run
-    the **nine** mechanical self-checks below before you emit anything, all of which apply in both
-    emission modes:
+    the **fourteen** mechanical self-checks below before you emit anything, all of which apply in
+    both emission modes:
     - **Verify parity** — every path a Verify command touches is created by a step or emitted in
       §19.6.
     - **No invented filenames** for generated artifacts.
@@ -160,8 +169,20 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
     - **Committed-file integrity** — no file the blueprint calls committed is matched by an ignore
       pattern without an explicit exception line. See *A file you call committed must not be
       ignored*.
+    - **Loader reconciliation** — every import/link convention the blueprint states is walked
+      against app, tests, scripts and build, and §19.6's matrix names the config setting that makes
+      it work in each. See *One convention, every loader*.
+    - **Verify exit polarity** — every `Verify` and §20.1 line exits 0 when the step is correct;
+      no bare command whose expected outcome is a non-zero exit. See *A verify command exits 0 when
+      the step is correct*.
+    - **Medium feasibility** — every check's property is observable by the thing observing it. See
+      *A check must be possible in the medium it runs in*.
+    - **Re-runnable bootstrap** — the `workspace/` copy and every Bootstrap command survive a second
+      run without reverting emitted files. See *The workspace copy must be idempotent*.
+    - **No contract from a NOT APPLICABLE section** — no step references a section you marked
+      `NOT APPLICABLE`. See *A NOT APPLICABLE section cannot carry a contract*.
 
-    All nine catch defects you must *fix*, not defects you may ship. The validator files each of
+    All fourteen catch defects you must *fix*, not defects you may ship. The validator files each of
     them, and most are BLOCKER.
 12. **Return the summary.** Path, section coverage as `n/N`, artifacts written, assumptions, gaps,
     version provenance.
@@ -202,7 +223,9 @@ write both.
 
 `workspace/` exists so the builder copies **one directory** into the project root instead of
 cherry-picking files out of a blueprint bundle. Say that explicitly in the blueprint wherever the
-layout appears.
+layout appears — and write the copy in its **non-clobbering** form every time you write it, because
+the builder will re-run bootstrap to recover from something unrelated. See *The workspace copy must
+be idempotent*.
 
 Templates for the non-narrative artifacts:
 `tasks.json` per `${CLAUDE_PLUGIN_ROOT}/templates/tasks-schema.md` (it is **JSON** — a bare array,
@@ -349,6 +372,60 @@ Four specific traps, all found in the wild:
 - **Binary-fetch steps are commands too.** `playwright install`, `puppeteer browsers install`, model
   or toolchain downloads: if a verify command needs it, it appears in §10 as a real setup line.
 
+### A verify command exits 0 when the step is correct
+
+**The exit status is the entire signal.** A runner, a CI job, and the resume protocol all read a
+non-zero exit as *this gate failed*. None of them can tell "the tool errored" from "the tool
+correctly errored", and none of them read your comment.
+
+So the trap is the one thing you should be gating: a **documented error path**. Exit codes are a
+public interface, §5 may enumerate them, and the natural way to write the check is the way that
+breaks the build — `mytool --bad-flag  # expect: exit 2` is a *failing* step to every consumer of
+that block, forever, on every machine.
+
+| Silently fails the gate | Correct — the line itself exits 0 |
+|---|---|
+| `mytool --bad-flag`  `# expect: exit 2` | `mytool --bad-flag; test $? -eq 2`  `# expect: exit code 2 → this line exits 0` |
+| `mytool query 'no-such-tag'`  `# expect: exit 1` | `mytool query 'no-such-tag'; test $? -eq 1`  `# expect: exit code 1 → this line exits 0` |
+| `grep -q FIXME out.txt`  `# expect: no match` | `! grep -q FIXME out.txt`  `# expect: no match → exits 0` |
+| `curl -f localhost:3000/missing`  `# expect: 404` | `test "$(curl -s -o /dev/null -w '%{http_code}' localhost:3000/missing)" = 404` |
+
+**Assert the code; never let the failure escape.** Keep the expected code visible — the point is not
+to hide it, it is to make the assertion decide the status.
+
+**The self-check:** read every `Verify` block and every §20.1 line top to bottom and ask, for a
+*correct* step, what status the block exits with. Any command whose success case is a non-zero exit
+must be wrapped. Do it under the assumption of `set -e` too: a bare failing command aborts the block
+before the rest of the gate runs. This is a small rule and it silently breaks automated builds.
+
+### A check must be possible in the medium it runs in
+
+**Before you specify a check, confirm the property is observable by the thing doing the observing.**
+Media differ in what they can see, and a check aimed at the wrong medium is not merely wrong — it is
+*unsatisfiable*, so the builder's only way past it is to rewrite the check, and the gate then proves
+whatever the builder decided it proves.
+
+| Medium | Cannot see |
+|---|---|
+| A runtime check (importing a module, inspecting an object) | anything erased before runtime — types, interfaces, type-only exports, macros, comments, eliminated branches |
+| A static parse | values computed at runtime, dynamic registration, anything behind a condition |
+| A type check | I/O, wall-clock behaviour, what the process actually did |
+| A linter | network behaviour, cross-process state |
+
+**A real blueprint asked a script to compare a runtime module namespace against a documented export
+surface containing 8 type-only rows.** Types are erased at runtime, so the runtime namespace could
+never contain them: the check failed in one direction and, inverted, failed in the other. It could
+not pass in either direction on any machine.
+
+When the property is not observable there, you have two moves and no third: **change the medium**
+(assert type-only exports with the type checker or a static parse of the source, not a runtime
+import) or **change the property** (assert only the runtime-visible subset, and say in the criterion
+that it is the subset).
+
+**The self-check:** for each `Verify` command and each **Done when**, write in one clause *what
+executes the check* and *what the check looks at*. If the second is not visible to the first, fix it
+before you emit.
+
 ### An emitted config must load what the blueprint mandates
 
 **Verify parity gets the file onto disk. This obligation makes its contents work.** The two are
@@ -388,6 +465,56 @@ Two failure shapes to watch for specifically, because both look fine while readi
 - **The framework resolves it and nothing else does.** The application builds, so the package looks
   healthy. Test runners, seed scripts, migration tools and lint plugins each resolve modules their
   own way. "It works in the app" is evidence about exactly one resolver.
+
+### One convention, every loader
+
+**This is the extension of the rule above from test configs to every loader, and it is the defect
+that dominates.** In a real build with no services, no network dependencies and nothing else wrong,
+a literal builder stopped dead at step 3 and again at step 12 — both times on the same root cause,
+and fixing that one thing killed four of the blueprint's ten defects and both hard stops.
+
+**Whenever your blueprint states an import, include, or link convention** — a module specifier or
+extension form, a path alias, a package-export condition, a barrel-file rule, a link mode — **you
+have not decided it until you have reconciled it against every context that loads those modules.**
+Stating it in four sections is not four decisions; it is one assertion aimed at one consumer.
+
+**The failure, told once so you recognise its shape:** the blueprint mandated one specifier form
+throughout the source tree, in four places. The application's compiler was configured for it and
+accepted it. Then a standalone script imported that source — and the bare runtime, which strips
+types but resolves specifiers **literally**, found nothing at the mandated path and died with a
+module-not-found error. Switching the script to the other specifier form made the **compiler**
+reject it, because the compiler config the blueprint emitted lacked the single flag that permits
+that form. Neither form worked in both contexts. On top of that the check the script was performing
+was itself impossible in its medium — three mutually reinforcing defects on one gate.
+
+**Generalise past that ecosystem.** The names change; the shape does not. A runtime that strips
+types but resolves specifiers literally, a compiler that rejects the other specifier form, a bundler
+that rewrites both, a plain script runner with no config at all — each is a resolver with its own
+rules, and none of them inherit the framework's.
+
+**Enumerate the contexts, always these four at minimum:**
+
+| Context | Resolved by | Confirm |
+|---|---|---|
+| **Application source** | the framework's or compiler's resolver | the convention holds, and you can name the setting that makes it hold |
+| **Test files** | the test runner's resolver | the runner config carries the matching alias, condition, or transform |
+| **Standalone scripts** | the bare runtime — no framework, no bundler, often no compiler | the form the runtime resolves **literally**, *and* the config flag the compiler needs so that same file still type-checks |
+| **Build / bundle** | the bundler or emitting compiler | the convention survives into the output and the output still resolves |
+
+Add a row for every other loader the project has — a lint plugin that resolves imports, a codegen
+tool, a container entrypoint, a docs extractor, a REPL.
+
+**If one context needs a different setting, the config emitted for THAT context carries it, and you
+write that in the same place you declare the convention** — §19.6's *Resolution convention matrix*,
+not three sections away in a §9 note. The builder hitting the error reads the error and the file.
+
+**The self-check, one pass:** for each row, name the **literal command** that exercises it — the
+build command, the test command, the actual script invocation, the bundle command — and confirm the
+convention works under that exact command with only the configs you emit. Fill every cell of the
+matrix; a cell you cannot fill is a context you have not checked, and "works by default" is honest
+only when you can say *which resolver's* default. If two contexts need different forms of the same
+specifier, that is not a compromise to leave to the builder: pick the form, emit the flag that makes
+the other context accept it, and record both in the matrix.
 
 ### Every env-reading tool needs a loader
 
@@ -483,6 +610,63 @@ that must be committed* table names the literal exception line — a negation pl
 pattern it overrides (`!.env.example`), or removal of the pattern — and that line appears in the
 Bootstrap block. **Prose is not an exception.** "Make sure `.env.example` is committed" changes
 nothing about what `git add -A` does.
+
+### The workspace copy must be idempotent
+
+**Bootstrap is what a stuck builder re-runs.** That is not misuse — it is the most natural recovery
+action available, and your blueprint has to survive it.
+
+Now that §19.6 mandates emitting the package manifest, a bare `cp -R workspace/. <project-root>/`
+over an already-bootstrapped tree **silently reverts that manifest to its dependency-free version**,
+taking every dependency entry the install added with it. Nothing errors at that moment. The *next*
+command fails naming a missing binary — an error that reads as a broken install, not as a clobbered
+manifest — so the builder reinstalls tooling, gets the same failure, and burns the step on the wrong
+problem. The same hazard covers any emitted file a later step edits: a lockfile, a compiler config a
+step tightens, a compose file a step extends.
+
+**So write the copy guarded, and put the reason next to it** — one of these three, in a trailing
+comment so nobody simplifies it away:
+
+| Guard | Shape | Use when |
+|---|---|---|
+| Copy only what is missing | `cp -Rn workspace/. <project-root>/`  `# -n: never clobber a file the build has since changed` | the platform's `cp` supports `-n` |
+| Gate on a marker | `[ -e <root>/.workspace-applied ] \|\| { cp -R workspace/. <root>/ && touch <root>/.workspace-applied; }` | portability matters, or the copy must happen exactly once |
+| Copy, then re-derive | copy unconditionally, then re-run the install or regenerate command that rebuilds whatever was overwritten | every overwritten file is machine-generated |
+
+Name in one line **which files are never overwritten** — the package manifest and the lockfile at
+minimum, once anything has been installed.
+
+**The self-check:** grep your own output for every `cp -R`, sync, or scaffold command in §10 and §19
+and ask, for each, what a second run does to a tree that already has emitted files edited by steps
+1…N. If the answer is "reverts them", guard it. Then extend the question to every other Bootstrap
+line — `git init`, migrations, seeds, scaffolders — because the block as a whole must be safe to run
+twice, and §20.1 now carries a manual gate that proves it.
+
+### A NOT APPLICABLE section cannot carry a contract
+
+**`NOT APPLICABLE` means the section has no content, so no later step may treat it as the source of
+one.** If §9 tells the builder to produce output "matching the format in §7" and §7 reads
+`NOT APPLICABLE — {reason}`, the format exists nowhere in the document: the builder invents all of
+it, and every later step measured against "the contract" is measured against the invention.
+
+**A real blueprint asked step 2 to commit two human-readable outputs "byte-exact, as the contract
+later steps are measured against" — while §6 and §7 were both `NOT APPLICABLE` and redirected
+elsewhere, and not one line of that output format appeared anywhere in its 1,967 lines.** The
+builder invented 100% of it, which made the byte-exactness gate self-certifying from the moment it
+was written.
+
+Two legal fixes, no third:
+
+| Situation | Fix |
+|---|---|
+| The section was applicable after all | Give it real content — the format, the schema, the palette, the wire shape — and keep the reference. |
+| The section genuinely does not apply | Move the contract to a concrete place *before* the step that reads it: a fenced block inside the step, a fixture or golden file emitted in §19.6, or a table in a section that does apply. Point the step at that place instead. |
+
+**The self-check, run both directions.** Forward: list every section you marked `NOT APPLICABLE`,
+then grep your whole output for that section's number (`§7`, `Section 7`) and its name — every hit
+outside the heading itself is a defect. Backward: for every step containing "matching", "as defined
+in", "the format in", "byte-exact", "the contract", or "the same shape as", open the referent and
+confirm literal content is there. **A reference is load-bearing only if the referent has content.**
 
 ### No step may retroactively break an earlier step's gate
 
@@ -676,7 +860,7 @@ criteria, a verify command, and a Checkpoint tag
 
 **Verify commands in the settings.json allowlist:** 14/14 from §9, 7/7 from §20.1
 
-**Self-checks (all nine, both modes):** verify parity 31/31 paths created by a step or emitted in
+**Self-checks (all fourteen, both modes):** verify parity 31/31 paths created by a step or emitted in
 §19.6 · 0 invented filenames for generated artifacts · §11 pins installed 24/24 (19 by §10 Bootstrap,
 5 by steps 3, 6, 11; 0 orphans) · no step breaks an earlier gate — env validation lands in step 2 and
 requires only the 3 variables §10 marks "Required by step ≤ 2" · config completeness 4/4 emitted
@@ -687,7 +871,14 @@ counted from §4 and §5, each appearing identically in every place it repeats; 
 asserts a property, not a tally · Checkpoint substrate: §10 Bootstrap runs `git init -b main`
 idempotently plus an initial commit, before any file-writing command · committed-file integrity: 3
 files the blueprint calls committed matched ignore patterns, all 3 have literal exception lines in
-§10's table and in the Bootstrap block
+§10's table and in the Bootstrap block · loader reconciliation: 1 convention walked against 4
+contexts, §19.6's matrix filled 4/4 — the scripts row needed a compiler flag the app row did not,
+written into the emitted compiler config · verify exit polarity: 18/18 Verify lines plus 7/7 §20.1
+lines exit 0 on a correct step; the 2 that gate documented non-zero exit codes are wrapped in an
+assertion · medium feasibility: 18/18 checks observable by their executor — the export-surface check
+runs under the type checker, not a runtime import · re-runnable bootstrap: the workspace copy is
+non-clobbering and §20.1 carries the re-run gate · NOT APPLICABLE integrity: 3 sections marked
+NOT APPLICABLE, 0 inbound references from any step
 
 **Assumptions (technical defaults applied — confirm if wrong):**
 1. Vitest for unit tests — runtime-track default; no preference was given.
@@ -804,6 +995,34 @@ Resolve these in the main thread and re-invoke.
     exception.** Scaffolders ship broad globs. List the committed files, match them against the
     ignore file the blueprint leaves on disk, and write the literal negation line into §10 for every
     hit. Prose is not an exception, and a swallowed file silently breaks §20.1's clean checkout.
+26. **A resolution convention is decided once and reconciled against every loader.** Any
+    import/include/link convention you state — specifier or extension form, path alias, export
+    condition, link mode — gets walked against **app source, test files, standalone scripts, and the
+    build**, plus every other loader the project has. Fill §19.6's *Resolution convention matrix*:
+    per context, the literal command that exercises it and the config setting that makes it work.
+    If one context needs a different setting, the config emitted for that context carries it and the
+    matrix says so — in §19.6, beside the convention, never three sections away. This is rule 21
+    extended from test runners to every loader, and it is the defect that stopped a literal builder
+    at step 3 and again at step 12 in a build with nothing else wrong.
+27. **Every `Verify` command exits 0 when the step is correct.** A runner reads only the exit status
+    and cannot tell "the tool errored" from "the tool correctly errored". Gating a documented error
+    path is right; writing it bare (`tool --bad-flag  # expect: exit 2`) is a permanently failing
+    gate. Wrap it so the line itself exits 0 — `tool --bad-flag; test $? -eq 2` — and keep the
+    expected code visible. Same rule for §20.1.
+28. **Every check must be possible in the medium it runs in.** Confirm the property is observable by
+    the thing observing it before you specify the check: a runtime check cannot see type-only or
+    otherwise erased constructs, a static parse cannot see runtime values, a type check cannot see
+    I/O. When it is not observable there, change the medium or change the property — never emit a
+    check the medium cannot decide.
+29. **The `workspace/` copy and every Bootstrap command are safe to re-run.** Write the copy in its
+    non-clobbering form with the reason in a trailing comment, and name the files that are never
+    overwritten. An unguarded recursive copy reverts the emitted package manifest and the next
+    command fails naming a missing binary — which reads as a broken install, not a clobbered file.
+30. **No step may draw a contract from a `NOT APPLICABLE` section.** Grep every section you mark
+    `NOT APPLICABLE` for inbound references, and grep every "matching / as defined in / byte-exact"
+    phrase for a referent with literal content. If a step needs the contract, put the content
+    somewhere concrete first — a fenced block in the step, a fixture in §19.6, or a section that
+    actually applies.
 
 ---
 

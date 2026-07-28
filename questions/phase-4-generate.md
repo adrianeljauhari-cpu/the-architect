@@ -255,8 +255,42 @@ Hand it a complete brief — the subagent has no memory of the interview:
   `workspace/` at their target-repo paths (Step 3's `<verify-critical config>` row); in single-file
   mode they are fenced blocks in §19.6, each labelled with its destination path. Naming a file in §3's
   tree is not emitting it.
+- **Who authors the package manifest**, stated as a decision and not left open — see *Who authors the
+  package manifest* immediately below. Say which of the two origins applies to this stack, in the
+  brief, in one line.
 - **That §10's Bootstrap block will be executed verbatim in Step 6**, so every command in it must be
   non-interactive and in the order it is run — no TTY prompts, no "then configure as needed".
+
+### Who authors the package manifest — decided here, not left to the writer
+
+The **manifest** is whatever file the track's dependency manager reads: `package.json`,
+`pyproject.toml`, `go.mod`, `Cargo.toml`, `Gemfile`, `composer.json`. On a greenfield build nothing in
+this plugin said who produces it, and two defensible readings existed — §19.6 requires emitting every
+config a `Verify` needs, and §10's Bootstrap installs dependencies *before* step 1, which forces the
+manifest to pre-date step 1; while validator finding #18 pushes against a build step that is already
+satisfied by the blueprint. Only one of the two readings actually builds. **This is the ruling. Put it
+in the brief.**
+
+One question decides it: **does a command in §10's Bootstrap block generate the manifest?**
+
+| Answer | Who authors it | What must NOT happen |
+|---|---|---|
+| **Yes** — Bootstrap runs a scaffolder that writes it (`pnpm create …`, `cargo new`, `uv init`, `go mod init`, `bundle init`) | **The scaffold command.** The blueprint owns the *edits* on top of it — added scripts, the engines/requires floor, an extra dependency — and each edit is a named command or an explicit written change inside §10, placed **after** the scaffold line and **before** step 1 | Do not also emit the manifest under `workspace/`. The copy would either be overwritten by the scaffolder or overwrite it, and which one wins depends on command order nobody stated |
+| **No** — bare greenfield with no scaffolder, the normal case for a CLI, a library, an MCP server | **The blueprint.** Emit it as a real file in **§19.6**, under `workspace/` at the repo root in bundle mode, as a labelled fenced block in single-file mode. It is origin 2 under `templates/blueprint-template.md` §3, and the builder's single `workspace/` copy puts it in place before Bootstrap's first install command runs | Do not give §9 a step whose job is to write the manifest. Bootstrap already installed from it, so that step gates nothing — that is exactly finding #18 |
+
+**Never split the file across both.** A stub under `workspace/` that step 1 "fills in" is two authors
+and one file, which is the thing the writer rule below exists to prevent. One origin, complete
+content, no `{placeholder}` fields, no "add your dependencies here".
+
+**Finding #18 and §19.6 do not actually conflict once this is applied.** #18 is about a *build step*
+that gates nothing; emitting a workspace file is not a build step and is never scored as one. The
+combination #18 forbids is the third option neither rule wanted: a §9 step that authors a manifest
+§10 already installed from.
+
+The same ruling covers every other file Bootstrap consumes before step 1 exists — the lockfile
+policy, the runtime-version file (`.nvmrc`, `.python-version`, `rust-toolchain.toml`), and the
+compiler config when the install or the first `Verify` reads it. If Bootstrap touches it before step
+1, a scaffold command makes it or `workspace/` ships it. Nothing else is available that early.
 
 **The writer writes.** It composes *and* saves every file in the Step 3 tree. Never re-write those
 files yourself afterwards — two authors with no arbiter is how a bundle ends up half-consistent.
@@ -307,6 +341,8 @@ guard the blueprint mandates on every server module. A seed script that died bef
 None of those touch step 1, which is why step 1 kept passing while the blueprint kept failing.
 
 So this step runs **three** things, and the third is the one that has been catching the real defects.
+A fourth, short, is handed to you by the validator: running the blueprint's own formatter over
+`workspace/`, which the validator is structurally unable to do.
 
 **Only the main thread can do this.** `blueprint-writer` and `blueprint-validator` have no `Bash`.
 Every "run this before shipping" line in the templates and in `knowledge/stack-compatibility.md`
@@ -323,6 +359,15 @@ cwd, never `./blueprints/`:
    trailing comment states.
 3. **The first `Verify` command in §9 that touches the DATA LAYER** — and everything §9 says must run
    before it, so it can run at all.
+4. **The formatter/linter check over `workspace/`** — the half of validator Sweep 12 that is handed to
+   you by name, because the validator has no shell and cannot run a formatter. Copy `workspace/` into
+   the scratch project root exactly as §19 tells the builder to, then run **the check command the
+   blueprint itself mandates** (`<formatter> check .`, `<linter> .`) over that tree. A live run caught
+   two real mismatches here that no amount of reading had found. Copy it where §19 puts it — after
+   §10's Bootstrap has created the tree, before step 1 — so if §9 step 1 or §20.1 already runs that
+   command, run 2 covers this for free and you need only read its output. Any failure is
+   finding #22 and routes to *On failure* like every other: send it back to the writer, do not reformat
+   the file yourself.
 
 If the bootstrap needs environment variables, seed them from the `.env.example` the blueprint
 specifies, using §10's literal local values. If a command still needs a real secret, it is a
@@ -348,6 +393,28 @@ either. Send it back to the writer rather than typing it yourself.
 
 That last rule is the whole value of run 3. Every defect the last two build tests hit had this exact
 signature: a step that runs only if you already know the one thing the blueprint never says.
+
+**A data layer that needs no service is a CLEAN PASS of run 3, not a blocked one.** Plenty of correct
+architectures store state without anything to start: an embedded or in-process database, a
+single-file store, an append-only log, a content-addressed cache, an index built from files on disk.
+For those, run 3 is *easier*, not skipped — the earliest `Verify` that applies schema, writes or
+clears data, or runs a test importing the storage module still exists, and you still run it and its
+prerequisites in §9's order. It passes or it fails on the blueprint's merits, exactly like any other.
+This has been executed for real: a live run took run 3 against an embedded database, with no service
+anywhere in the stack, and passed fully.
+
+So do not reach for the "not smoke-tested past the toolchain" note because the stack has no container
+in it. That note is for a data layer you **could not reach**, never for one that had nothing to
+start. A blueprint whose store is in-process and whose run 3 passed is **smoke-tested**, full stop,
+and reporting it any weaker under-sells a build that was verified end to end.
+
+Three situations that look adjacent, one verdict each:
+
+| Situation | Run 3 verdict |
+|---|---|
+| The store is embedded/in-process/file-based, and its first `Verify` ran | **Clean pass.** Report it as `bootstrap, step 1 and <command> verified` |
+| The data layer is genuinely serviceless *and* there is no schema, no write, no seed and no test that touches storage anywhere in §9 | Say so in one line — run 3 has no target, and that is a finding about §9, not about this machine. A blueprint with a data model and no gate that exercises it goes back to the writer |
+| A service *is* required and this machine cannot start it | The environmental case below |
 
 Rules for the run:
 
@@ -376,8 +443,13 @@ patch the blueprint to match what happened to work, and do not soften the step s
 
 Some bootstraps cannot execute here: no network, a toolchain this machine does not have, a paid
 credential the user has not created yet, a command that would provision real infrastructure. Run 3
-adds its own: **no container runtime for the local database, or a managed data service that needs the
-user's own credentials.** Then:
+adds its own: **a data layer whose service this machine cannot start — no container runtime for the
+local database, or a managed data service that needs the user's own credentials.**
+
+Read that blocker as *a service is required and unavailable*. A stack whose data layer needs no
+service at all is the clean-pass case above and never lands here — an in-process store is a design
+choice, not a degraded environment, and treating it as a blocker reports a verified build as an
+unverified one. Then:
 
 - **Run everything up to the blocking command** and report a partial pass — "bootstrap verified
   through `pnpm install`; `supabase link` needs the user's project ref". A partial run is worth far
@@ -400,11 +472,14 @@ command you could not run and the environmental reason, and carry that exact wor
 The distinction is the whole point of this revision. A blueprint whose toolchain runs and whose data
 layer was never touched is exactly the artifact both failed build tests produced, and reporting it as
 "smoke-tested" is what let it reach a builder twice. **Only an environmental blocker earns this
-note** — no container runtime, no credentials, no network. A command that fails because the blueprint
-is wrong is never an environmental blocker; that is *On failure*, and it goes back to the writer.
+note** — a required service you cannot start, no credentials, no network. Two things are never
+environmental blockers: a command that fails because the blueprint is wrong (that is *On failure*, and
+it goes back to the writer), and a data layer that needs no service in the first place (that is a
+clean pass — run it, and report it as verified).
 
-*Done when:* the §10 Bootstrap block, step 1's `Verify` commands, **and the first data-layer `Verify`
-command with its prerequisites** have each been executed in a scratch directory and either **all
+*Done when:* the §10 Bootstrap block, step 1's `Verify` commands, **the first data-layer `Verify`
+command with its prerequisites**, and the mandated formatter check over the copied `workspace/` tree
+have each been executed in a scratch directory and either **all
 exited as the blueprint says they should**, or the exact unexecuted commands, their environmental
 reason, and — if run 3 was among them — the words **not smoke-tested past the toolchain** are written
 down for Step 8's handoff. The services are torn down and the scratch directory deleted either way.
@@ -463,8 +538,8 @@ Short summary. Do not restate the architecture — the user just approved it.
 
    | What happened | The line to write |
    |---|---|
-   | Bootstrap, step 1, and the first data-layer verify all ran | "bootstrap, step 1 and `<the data-layer command>` verified in a scratch directory" |
-   | Runs 1 and 2 ran, run 3 blocked environmentally | **"not smoke-tested past the toolchain"** — name the data-layer command and the reason |
+   | Bootstrap, step 1, and the first data-layer verify all ran — **including every stack whose store needs no service to start** | "bootstrap, step 1 and `<the data-layer command>` verified in a scratch directory" |
+   | Runs 1 and 2 ran, run 3 blocked environmentally — a **required service** could not be started here | **"not smoke-tested past the toolchain"** — name the data-layer command and the reason |
    | Blocked before that, or skipped | **"not smoke-tested"** — name what was not run and why |
 
    Never omit this line; a silent omission reads as a pass. And never write plain "smoke-tested" when
@@ -553,6 +628,7 @@ a compaction mid-composition is the real risk here, not the missing agent.
 | A migration or seed command exits 1 having created nothing | The tool reads an env var and nothing in the blueprint loads the env file for it | Validator finding #26 — the loading mechanism belongs in the command itself |
 | A verify command greps for a count and gets a different one on every machine | A derived number was written from impression, not counted | Validator finding #27 — assert the named entities, not the cardinality |
 | Step 1's checkpoint fails with `not a git repository` or an unresolvable `HEAD` | §10 never created the repo and its first commit | Validator finding #28 |
+| Bootstrap's first install exits 1 with `no package.json` / `go.mod not found` / `no pyproject.toml` | Nobody was assigned the manifest on a greenfield build | Step 4's *Who authors the package manifest* — either a §10 scaffold command generates it or §19.6 ships it under `workspace/`. Never a §9 step |
 | Generation blocks because a subagent will not dispatch | A step was read as requiring delegation | It never does — fall back to the main thread, say so in one line, continue |
 
 ---

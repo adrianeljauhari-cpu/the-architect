@@ -38,8 +38,10 @@ checklist you tick once.
 5. **Mark every unresolved decision `[NEEDS CLARIFICATION: question]` inline.** You may not enter
    GENERATE while a single marker remains. Resolve them by asking, or by making a documented
    assumption the user accepts.
-6. **Never recall a version number from memory.** Dispatch `stack-researcher` and pin what it
-   returns. A wrong pin poisons the whole build.
+6. **Never recall a version number from memory.** Every pin traces to a live registry check made in
+   *this* session: dispatch `stack-researcher` for it when the Task tool is there, and do the
+   lookups yourself in the main thread when it is not, saying so in one line. The check is
+   mandatory; the delegation never is. A wrong pin poisons the whole build.
 7. **Every build step carries acceptance criteria and a verify command.** Form:
    *WHEN `<trigger>` THE SYSTEM SHALL `<observable response>`* plus a command that exits 0.
    "Done when billing works" is a defect. Size each step to one sitting.
@@ -142,16 +144,20 @@ confirmation. "Looks good" is. Adjustments loop back to DEEP DIVE, not forward.
 
 ### GENERATE
 
-1. **Read `${CLAUDE_PLUGIN_ROOT}/questions/phase-4-generate.md` and execute its seven steps in
-   order.** That file is the procedure — this state is a pointer to it, not a second copy. It owns
+1. **Read `${CLAUDE_PLUGIN_ROOT}/questions/phase-4-generate.md` and execute it in order** — the
+   unnumbered pre-step (tell the user how long generation takes) and then all **eight** numbered
+   steps. That file is the procedure — this state is a pointer to it, not a second copy. It owns
    version verification, the mandatory bundle-vs-single-file question, the canonical output layout,
    the templates to read, and the validator loop. Never run this state from memory.
-2. **The subagents do the writing.** `blueprint-writer` composes *and writes* every file. Never
-   compose or write a blueprint file in the main thread — two authors with no arbiter is how a
-   bundle ends up half-consistent.
-3. **Present nothing until `blueprint-validator` returns PASS.** Send its findings back to the
-   writer, re-dispatch, repeat. An unvalidated blueprint is not a deliverable.
-4. Hand off per phase-4 Step 7: absolute paths, stack in one table, step count, and any
+2. **One author per bundle.** `blueprint-writer` composes *and writes* every file when it can be
+   dispatched — never re-write its files afterwards. If it cannot be dispatched, compose the whole
+   tree yourself and say so in one line. Two authors with no arbiter is how a bundle ends up
+   half-consistent; zero authors is worse.
+3. **Present nothing until the validation passes.** Send `blueprint-validator`'s findings back to the
+   writer, re-dispatch, repeat. If the subagent is unavailable, run its sweeps yourself from
+   `${CLAUDE_PLUGIN_ROOT}/agents/blueprint-validator.md` and say the audit was self-run. The bar
+   never moves: zero BLOCKER, zero MAJOR. An unvalidated blueprint is not a deliverable.
+4. Hand off per phase-4 Step 8: absolute paths, stack in one table, step count, and any
    "verify before install" flags. **The next command is `/architect-next`** for a bundle; for a
    single file, a fresh Claude Code session in the target project pointed at the blueprint.
 
@@ -174,9 +180,14 @@ Dispatch these with the Task tool. They keep heavy work out of your context wind
 
 | Agent | Use for |
 |---|---|
-| `stack-researcher` | Verifying every version pin, release status, and breaking change. **Required** before any pin. |
+| `stack-researcher` | Verifying every version pin, release status, and breaking change. |
 | `blueprint-writer` | Composing the blueprint from the confirmed brief. |
 | `blueprint-validator` | Auditing the written blueprint against rules 7–9. Run until clean. |
+
+**None of the three is a precondition.** If the Task tool is unavailable or an agent will not
+dispatch, do its job in the main thread, say so in one line, and continue — the work is required, the
+delegation is not. `${CLAUDE_PLUGIN_ROOT}/questions/phase-4-generate.md`, *Never hard-depend on a
+subagent*, states what each fallback may not drop.
 
 ## Commands
 
