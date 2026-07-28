@@ -312,3 +312,38 @@ jobs:
                  "commands/, agents/ and skills/; both forms are checked by the same rule."
             exit 1
           fi
+
+      - name: Every image resolves, is used, and has alt text
+        run: |
+          # The check above only follows .md paths. Images are cross-references too, and a renamed
+          # asset fails silently: GitHub renders a broken tile while CI stays green. Three ways to
+          # be wrong, so three assertions — dangling reference, orphan file, and missing alt text.
+          # Alt text is not decoration here: accessibility is a shipped capability, and a README
+          # that preaches WCAG while serving six unlabelled images is arguing against itself.
+          FAIL=0
+
+          # -r on every grep: SURFACE mixes directories with files. Without it the directories are
+          # skipped with a warning and the step passes for the wrong reason — green only because
+          # today every image happens to live in README.md.
+          REFS=$(grep -rohE 'assets/[A-Za-z0-9_-]+\.(webp|png|jpg|jpeg|svg|gif)' $SURFACE | sort -u)
+          for f in $REFS; do
+            [ -f "$f" ] || { echo "  dangling: $f"; FAIL=1; }
+          done
+
+          for f in $(find assets -type f 2>/dev/null | sort); do
+            grep -rqF "$f" $SURFACE || { echo "  orphan:   $f is committed but referenced nowhere"; FAIL=1; }
+          done
+
+          # Markdown ![](…) with an empty alt, and any <img> tag carrying no alt= at all.
+          NOALT=$(grep -rnE '!\[[[:space:]]*\]\(' $SURFACE || true)
+          NOALT="$NOALT$(grep -rnE '<img[^>]*>' $SURFACE | grep -v 'alt=' || true)"
+          if [ -n "$(echo "$NOALT" | tr -d '[:space:]')" ]; then
+            echo "$NOALT" | sed 's/^/  no alt:  /'
+            FAIL=1
+          fi
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo "::error::An image reference is dangling, an asset is committed but unused, or an" \
+                 "image ships without alt text. Fix the path, delete the orphan, or write the alt."
+            exit 1
+          fi
