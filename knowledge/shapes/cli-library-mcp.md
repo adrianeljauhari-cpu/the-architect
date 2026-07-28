@@ -2,7 +2,7 @@
 
 > Software whose consumer is a developer or an agent, not an end user — a command-line tool, a published package or SDK, or an MCP server. The deliverable is an API surface plus a distribution channel.
 
-Last verified: 2026-07-27
+Last verified: 2026-07-28
 
 ## Is this your project?
 
@@ -78,11 +78,13 @@ Rule: `internal/` is the default and `pkg/` is the exception. Anything reachable
 ## Build order
 
 1. **Consumer brief + README first** — write the usage section before any code: three real invocations, each paired with the exact output it will print. *Done when:* `README.md` contains exactly three invocation blocks, each followed by a fenced expected-output block, and each expected output is also committed verbatim to `docs/examples/NN-<name>.txt`; a script asserts the README block and its file are byte-identical and fails on drift. Step 9 later runs these files as tests, so writing the output wrong now costs you a red build then — which is the point.
-2. **Freeze the public surface** — list every exported symbol, command, or MCP tool with its signature in one file. Everything else is internal. **Split the list by what survives to runtime:** value exports (functions, classes, constants, commands, tools) in one section, type-only exports (interfaces, type aliases, enums-as-types, generics) in another. *Done when:* `docs/surface.md` exists with those two sections, and a drift check compares **like with like** — value rows against the module's runtime export names, type rows against the emitted declaration output — failing on drift in either. Say in the blueprint how the check script executes against the source: on a typed track that is a decision the runtime track owns, not one the check may assume.
+
+   **Two constraints on those bytes, because step 9 compares them literally and everything after step 9 chains off it.** First, **every value in an expected-output block must match the data model that defines it** — a path written relative to the run root stays relative to the run root, a field name matches its declaration, key order matches whatever the output contract promises. The blueprint states the definition and the golden in the same document, so a disagreement between them is decidable the moment it is written and blocks the build the moment it is checked. Second, **never dictate a string the runtime produces rather than your code** — a parser error, a stack trace, a library warning, an OS `errno` message. Those belong to the pinned runtime's version, they change between minor releases, and no amount of care makes them guessable from memory. Assert your own exit codes and your own error codes; where a third-party message must appear, capture it by running the command under the pinned version and say in the blueprint that it was captured, or leave it out of the byte-exact comparison entirely.
+2. **Declare the public surface** — list every exported symbol, command, or MCP tool with its signature in one file. Everything else is internal. This step **declares** the surface; the **freeze** — the drift check running as a gate — lands at the step where the modules exist. See *Declaring the surface vs freezing it* below, and say in the blueprint which step carries the freeze; it is a required sentence, not an optional one. **Split the list by what survives to runtime:** value exports (functions, classes, constants, commands, tools) in one section, type-only exports (interfaces, type aliases, enums-as-types, generics) in another. *Done when:* `docs/surface.md` exists with those two sections; every row names the module path that will export it; every one of those paths appears in a later step's *Files touched*; and the drift check script is written and committed, comparing **like with like** — value rows against the module's runtime export names, type rows against the emitted declaration output — failing on drift in either. Say in the blueprint how the check script executes against the source: on a typed track that is a decision the runtime track owns, not one the check may assume.
 
    **The two-section split is not tidiness; it is the difference between a gate that can pass and one that cannot.** A single flat list diffed against a runtime module namespace fails forever the moment one row is a type: types are erased before the process starts, so they are absent from the namespace no matter how correct the code is, and adding them to the namespace is impossible. This is not hypothetical — a live build stalled here, and the builder's only ways out were to delete true rows from the surface doc or to weaken the check, both of which destroy the thing the step exists to protect.
-3. **Skeleton + argument parsing** — command tree, flags, no behavior yet. *Done when:* `--help` prints the full tree and exits 0; an unknown flag prints usage to stderr and exits non-zero.
-4. **Core logic behind the surface** — implemented as a callable library, with the CLI as one thin caller. *Done when:* unit tests cover the happy path plus two failure modes, invoking core directly with no terminal involved.
+3. **Skeleton + argument parsing** — command tree, flags, no behavior yet. *Done when:* `--help` prints the full tree and exits 0; an unknown flag prints usage to stderr and exits with **the usage code from step 6's table** (2 by default) — assert that exact code, not merely "non-zero", or a crashing binary passes the gate. **If the surface is the command tree — a CLI with no importable API — this is the freeze step:** the step-2 drift check now runs as a gate and exits 0 against the built command tree.
+4. **Core logic behind the surface** — implemented as a callable library, with the CLI as one thin caller. *Done when:* unit tests cover the happy path plus two failure modes, invoking core directly with no terminal involved. **If the surface includes importable exports — a library, an SDK, or an MCP server's tool registry — this is the freeze step:** the step-2 drift check runs as a gate and exits 0 with every declared row backed by a real export, and `docs/surface.md` is frozen from here on (adding a row is a step-8 versioning event, not an edit).
 5. **Output contract** — human renderer on a TTY, `--json` for machines, diagnostics on stderr. *Done when:* `tool run --json | jq .` parses with zero stray stdout lines, and `NO_COLOR=1` output contains no escape sequences.
 6. **Exit codes + typed errors** — a documented table (0 success, 1 expected failure, 2 usage error, and any domain codes). *Done when:* a test asserts the code for each row of the table.
 7. **Config precedence** — flag → env → project file → user file → default, with `tool config show` reporting where each value came from. *Done when:* a test proves each level overrides the one below it.
@@ -93,6 +95,39 @@ Rule: `internal/` is the default and `pkg/` is the exception. Anything reachable
 12. **Release automation** — tag push builds, checksums, signs, generates the changelog, publishes. *Done when:* a dry run produces artifacts and a changelog with no manual step other than pushing the tag.
 13. **MCP only — transport and handshake** — support stdio and streamable HTTP; negotiate capabilities on connect. *Done when:* an MCP inspector connects over both transports, completes `initialize`, and lists every tool with its schema.
 14. **Adoption smoke test** — install the *published* artifact the way a stranger would, somewhere the source tree is not, and run the README's first example. *Done when:* the install command exits 0 and the example's stdout byte-matches `docs/examples/01-*.txt`, with the workspace unreachable from wherever the command ran. See *Proving the install without a container* below.
+
+## Declaring the surface vs freezing it
+
+Step 2 exists because **every accidental export is a support obligation**, and the cheapest moment to
+decide what is public is before anything is public. That rationale is right and it does not change.
+What changes with the project is **when the freeze can physically happen** — and a blueprint that
+gets this wrong produces a step that documents nothing.
+
+**The two are different acts and they belong at different steps.**
+
+| Act | What it produces | When it can happen |
+|---|---|---|
+| **Declare** | `docs/surface.md` with the two sections, every row naming the module path that will export it, and the drift-check script written and committed | **Step 2, always.** It is a design decision; it needs no code |
+| **Freeze** | the drift check running **as a gate** — every declared row backed by a real export, every real export declared, failing the step on drift in either direction | **Only once the modules exist.** Step 3 for a CLI whose surface is its command tree; step 4 for a library, an SDK, or an MCP server's tool registry |
+
+**Greenfield — the common case here.** At step 2 there are no modules, so there is nothing to diff.
+A step-2 gate that runs the drift check has three possible readings and all three are wrong: it
+passes trivially against zero exports (gating nothing), it fails against zero exports (unpassable),
+or the builder is asked to judge which of those was meant — a clarifying decision an autonomous build
+cannot make. So on greenfield, **step 2's gate is that the declaration is complete and internally
+consistent**, and the drift check becomes a gate at the freeze step named above. Say the freeze step
+by number in the blueprint.
+
+**Brownfield — the surface already exists.** Modules are on disk at step 2, so declaring and freezing
+are the same act and both land there: run the drift check at step 2, exit 0 against the current build
+output, and treat any surprise row it finds as a finding about the existing package rather than a
+reason to weaken the check. This is the reading the original phrasing assumed, and it is correct —
+for this case only.
+
+**Either way, the freeze is real from its step onward.** After it, `docs/surface.md` is not edited to
+match the code; the code is changed to match it, or the change goes through step 8's versioning
+policy. That is the property step 2 exists to protect, and moving *where* the gate starts does not
+weaken it — declaring early is what keeps everything else internal in the meantime.
 
 ## Proving the install without a container
 
@@ -146,6 +181,7 @@ either path in *Proving the install without a container*.
 - **Publishing from a laptop.** No provenance, no reproducibility, and one compromised machine owns your users. Release only from CI on a tag.
 - **Requiring the newest runtime.** Declare a floor, test it in the matrix, and raise it only in a major.
 - **A surface check that diffs type-only exports against a runtime namespace.** Types are erased before the process starts, so they can never appear in the module's exports — the gate fails on correct code, in both directions, forever. Compare value rows to the runtime namespace and type rows to the declaration output. Step 2 above.
+- **Freezing a surface that does not exist yet.** On a greenfield build there are no exports at step 2, so a drift check gated there either passes against nothing or fails against nothing, and the builder has to guess which was meant. Declare at step 2, freeze at step 3 or 4 — *Declaring the surface vs freezing it* above, and name the freeze step in the blueprint.
 - **Verifying the packaged artifact from inside the workspace.** Every ecosystem resolves upward, so a check run in the repo (or a child of it, or through a link) silently tests the source you were trying to exclude and passes on a broken package. Steps 11 and 14 above.
 
 ## Skills for the build phase

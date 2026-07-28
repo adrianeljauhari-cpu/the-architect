@@ -653,6 +653,96 @@ work that does not run.
     it is misplaced; apply fix 1 or fix 2. If no — the step only reads, and some earlier step
     committed the file — it is legitimate and stays.
 
+15. **An expected output authored before its producer is reconciled twice — against this blueprint,
+    and against the pinned runtime.** Writing the golden file, the byte-exact example, or the fixture
+    in an early step, *before* the code that emits it exists, is a **good** practice: it makes the
+    contract real instead of retrofitted, and rule 4 above prescribes exactly that move whenever the
+    section that would have held the format does not apply. Keep doing it. But bytes authored ahead
+    of their producer are a **prediction**, and no other rule in this document checks a prediction.
+    Two reconciliations discharge it, and **both are checkable while you write** — neither needs the
+    code to exist.
+
+    **Reconciliation 1 — against every definition elsewhere in this blueprint that constrains the
+    content.** Field semantics and path relativity from §4, the envelope and error codes from §5, key
+    order, number and date formatting, units, casing, sort order, line endings, trailing newline.
+
+    > *The observed failure was twelve lines wide.* §4 defined the field as *"path relative to the
+    > run root"*, and §4's own example agreed. The golden file authored eleven lines later wrote a
+    > **parent-directory prefix** into that same field. Both statements were in the blueprint;
+    > nothing had read one against the other. The step that diffs real output against that golden
+    > fails byte-for-byte on every machine, forever.
+
+    **Reconciliation 2 — against the PINNED RUNTIME that will actually produce it.** Exception and
+    parse-error wording, stack-trace shape, object key ordering, float formatting and rounding,
+    locale and timezone rendering, sort collation — all of it is **runtime-version-specific**. A
+    string written from memory, or copied from a version other than the one §11 pins, is a gate that
+    fails on every machine forever and names the builder's code as the culprit.
+
+    > *The observed failure embedded a parse-error message the pinned engine cannot emit.* The string
+    > was the previous major's format; the pinned version emits two mutually exclusive message
+    > families, neither matching — verified empirically across seventeen candidate inputs. The
+    > builder's only escape was to **judge that the blueprint's own format was wrong**, which is
+    > exactly the clarifying decision a self-contained blueprint forbids.
+
+    **Reconciliation 2 is checkable at authoring time with a single command: run the producing call
+    on the pinned runtime and read what it actually says.** One `JSON.parse` of a malformed string,
+    one divide by zero, one date rendered, one object serialised with the real keys — executed on the
+    pin from §11, not recalled. You have no shell, so the call goes to whoever does: **name the exact
+    command and the literal it must produce in your return value, as a gap the main thread executes
+    before this blueprint ships** — or do not write the literal at all. Never transcribe a
+    runtime-produced string from memory into an artifact something will diff.
+
+    **Record both reconciliations in §19.6's *Byte-exact artifact reconciliation* table**, which is
+    where the golden files and fixtures are emitted and where the mechanical self-check lives. A row
+    whose last two columns cannot be filled is a literal you may not write: replace the byte-exact
+    comparison with a property the step can actually assert — a schema check, field-by-field
+    assertions, or a diff normalised to drop the runtime-specific part — and say in the criterion
+    that it *is* the property (rule 12).
+
+    **Predicting the failure in §20.2 is not a fix.** A risk register that forecasts "the step-7 diff
+    may fail" and an epic that states the repair procedure convert a hard block into a two-deviation
+    repair — but the repair still requires the builder to decide which of two blueprint-authored
+    facts to believe. Fix the bytes; do not document the wound.
+
+16. **A gate must fail for the right reason.** Rule 11 makes a *correct* step exit 0. This rule makes
+    an *incorrect* one exit non-zero **for the reason the gate claims**. They are the two halves of
+    one property and they catch opposite defects: rule 11 catches a gate that can never pass, this
+    one catches a gate that can never fail.
+
+    **A command that errors on its own usage still exits non-zero.** Wrong arity, an unknown flag, a
+    missing argument, a flag illegal in combination with another, a file it cannot open — every one
+    of those exits non-zero *before the command ever evaluates the property*. So a gate whose pass
+    condition is *"exits non-zero"* passes **vacuously**, and keeps passing after the thing it checks
+    breaks.
+
+    > *The observed failure:* a §20.1 manual gate ran `git check-ignore -q <pathA> <pathB>` to prove
+    > two paths were not ignored. `-q` is legal only with a **single** pathname, so git exited **128**
+    > for usage — never **1** for "no path matched an ignore rule". The gate's condition was
+    > "non-zero", so it passed. It would have passed identically if both files *were* ignored, which
+    > is the entire thing it existed to detect.
+
+    | Passes vacuously | Fails for the stated reason |
+    |---|---|
+    | `! git check-ignore -q a b`  `# expect: non-zero` | `git check-ignore -q a; test $? -eq 1` and the same line for `b`  `# 1 = not ignored · 128 = usage, and now that fails` |
+    | `! mytool validate config.json`  `# expect: invalid` | `mytool validate config.json; test $? -eq 1`  `# 1 = invalid · 2 = bad usage` |
+    | `mytool --bad-flag; test $? -ne 0` | `mytool --bad-flag; test $? -eq 2` |
+    | `! curl -f "$URL/missing"`  `# expect: 404` | `test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/missing")" = 404` |
+
+    **The rule:** any gate whose success condition is a **non-zero** exit must either **assert the
+    specific code** the property produces, or be restructured so success is exit 0 and the property
+    is read from *output* rather than from status. `!` and `test $? -ne 0` accept every failure
+    equally — including the ones that mean your command was malformed — so neither is a gate. Where
+    the tool documents no stable code, assert on its output (`grep -qx`, `jq -e`, a diff) and let
+    that assertion decide the status.
+
+    **The mechanical self-check.** Grep every `Verify` block and every §20.1 line for a leading `!`,
+    for `test $? -ne`, and for any comment reading *expect: non-zero*, *expect: fails*, or *expect:
+    error*. For each hit answer two questions: **which exit code does the property produce**, and
+    **which codes does this command emit for usage errors** — arity, unknown flag, illegal flag
+    combination, unreadable file. If those two sets overlap, or if you cannot name the first, it is
+    not a gate. Then re-read the command's **arity and flag rules against its documentation**, since
+    a vacuous gate is invisible to every audit that merely runs it and sees green.
+
 ### One step, one unit — the counting rule
 
 **This subsection is the single source of truth for step counts and epic counts.**
@@ -788,6 +878,13 @@ format, a schema, a fixture, a wire shape — that contract exists concretely so
 step reads it: a fenced block in the step itself, a file emitted in §19.6, or a table in a section
 that does apply. Check every `§N` you write in this step against what §N actually contains.
 
+**If this step authors expected output that a later step diffs — a golden file, a fixture, a
+snapshot baseline — write the literal bytes here, and reconcile them twice before you do** (rule 15):
+against every blueprint rule that constrains their content, and against the §11-pinned runtime that
+will actually produce them. Give the artifact a row in §19.6's *Byte-exact artifact reconciliation*
+table. Authoring the contract ahead of the producer is correct; shipping it unchecked blocks every
+step downstream of the diff.
+
 Never invent the name of a file a generator produces — migrations, codegen output, lockfiles. Tools
 name those themselves, usually with a hash or a random suffix, so a step that says
 `0006_reservations.sql` names a file that will not exist. Write "the migration `db:generate` emits"
@@ -805,7 +902,16 @@ and describe what must be in it.}
 Nothing here may depend on this step's own Checkpoint (rule 14). At this moment the step's files are
 written but untracked, the tree is dirty, and the tag does not exist — so no `git status --porcelain`
 clean check, no `git ls-files --error-unmatch` over a file this step created, no `git diff --quiet`,
-no lookup of this step's own tag. Assert the file on disk instead, or move the assertion below.}
+no lookup of this step's own tag. Assert the file on disk instead, or move the assertion below.
+
+No line here may pass on *any* non-zero exit (rule 16). If the correct outcome of a command is a
+failure, assert the specific code — `{cmd}; test $? -eq {N}` — so a usage error (wrong arity, unknown
+flag, bad combination) fails the gate instead of satisfying it. A bare `!` or `test $? -ne 0` is not
+a gate.
+
+If a line here diffs real output against a literal this blueprint authored earlier, that literal has
+a row in §19.6's *Byte-exact artifact reconciliation* table, checked against both the blueprint rules
+that constrain it and the §11-pinned runtime that produces it (rule 15).}
 ```
 
 **Checkpoint**
@@ -933,7 +1039,12 @@ acceptance gate runs against a tree the builder never actually has.
 
 Write the ignore-file exception as a literal line, in the ignore file's own syntax, in the Bootstrap
 block below — a negation (`!.env.example`) placed **after** the pattern it overrides, or the removal
-of the offending pattern. Prose ("make sure `.env.example` is committed") is not an exception.}
+of the offending pattern. Prose ("make sure `.env.example` is committed") is not an exception.
+
+**And the ignore file itself, with these exception lines in it, exists before Bootstrap's first
+commit** — see *The ignore file precedes the first commit* below. An exception line written into a
+`.gitignore` that a §9 step delivers after the first commit corrects nothing: the paths it was meant
+to govern were already tracked, and tracked paths ignore the ignore file.}
 
 | File | Why it is committed | Ignore-file exception line |
 |---|---|---|
@@ -965,6 +1076,33 @@ Adapt the syntax to whatever version-control system §9's Checkpoints use; the o
 same — **if the build order uses version-control checkpoints, this block creates the repository and
 the first commit.** If §9 uses no checkpoints at all, say so here explicitly rather than leaving the
 question open.
+
+**The ignore file precedes the first commit.** Those two lines create a commit, and `git add -A`
+takes **everything on disk at that moment**. Any path the ignore rule was written to exclude that
+already exists is tracked from then on — and **an ignore rule never applies to a path git already
+tracks.** No later edit to the ignore file un-tracks it; nothing errors; every subsequent `git add
+-A` keeps it.
+
+> *The observed failure:* the blueprint delivered `.gitignore` in a **§9 step**, while this block's
+> first commit ran before step 1. **19 files** the ignore rule was meant to exclude went into the
+> first commit and stayed there for the whole build. Both artifacts were correct in isolation; only
+> their order was wrong.
+
+So the ignore file is delivered **here, in this block, before the first commit** — written inline,
+emitted under `workspace/` and landed by the guarded copy above, or produced by a scaffolder line
+earlier in this same block — together with every exception line from the *Files that must be
+committed* table. **A §9 step may not be the first place the ignore file appears.** A later step may
+tighten it; that is an edit to a file that already exists, and the step says so.
+
+**Generalise past version control: any file whose *purpose* is to change what a later command sees
+must be in place before the first command whose behaviour it governs.** Ignore files before the
+first commit, `.dockerignore` before the first image build, formatter/linter config and its exclude
+lists before the first `format --check`, the env file before the first tool that reads it, workspace
+globs before the first install. **State the ordering out loud in this block** rather than leaving it
+implied by line order — a reader cannot tell a deliberate sequence from an accidental one, and the
+next person to add a line has nothing to place it against. One comment line does it:
+
+    # order matters: ignore file + exceptions → repo init → first commit → install → services → migrate → seed
 
 **Every command here must be safe to run twice.** Bootstrap is the first thing a stuck builder
 re-runs, so treat re-running it as a supported path, not an accident: guard the version-control
@@ -1479,6 +1617,7 @@ No placeholders, no "configure as needed" — the builder runs these, it does no
 | Test setup / env-bootstrap file | any test imports a module that validates env at import time |
 | Path-alias config | any test or source file resolves an alias the runner does not inherit |
 | Local service provisioning | any `Verify` needs a database, cache, queue, broker, or object store |
+| Golden / expected-output file, fixture, snapshot baseline | any `Verify` diffs real output against a stored literal — and every one gets a row in *Byte-exact artifact reconciliation* below |
 | Any file a `Verify` command names as an argument | always — including every test file it runs |
 
 That last row is the one that fails silently. Cross-check it mechanically before emitting: **every
@@ -1732,6 +1871,48 @@ pluralisation are the entire failure mode** — `dist/cli.js` and `dist/cli/inde
 that much and read as the same thing at a glance. Then check rule 13: the earliest step where both
 sides of each contract exist is the step whose `Verify` must exercise it.
 
+#### Byte-exact artifact reconciliation
+
+{**Required whenever this blueprint authors literal bytes that something later compares character
+for character** — a golden file, an expected-output fixture, a snapshot baseline, a sample a `Verify`
+runs `diff` against, a `jq -e` equality on a literal string. If it authors none, write
+`NOT APPLICABLE — this blueprint authors no byte-exact expected output.` and keep the heading.
+
+Authoring those bytes **before** the code that produces them is the right move — it makes the
+contract real instead of retrofitted, and it is what rule 4 asks for when the section that would have
+held the format does not apply. This table is the obligation that comes with it (§9 rule 15): the
+bytes are a **prediction**, and a prediction has to be reconciled twice.
+
+The two matrices above reconcile a *convention* across loaders and a *value* across files. This one
+reconciles **authored content against the two things that determine it**: the blueprint's own rules,
+and the runtime that will actually emit it. Both were wrong at once in the observed failure — one
+artifact carrying two independently wrong facts, each checkable at authoring time.}
+
+| Byte-exact artifact | Authored by | First diffed at | Blueprint rules that constrain it | Runtime call that produces it, on the §11 pin | Both confirmed |
+|---|---|---|---|---|---|
+| {path} | {§19.6, or step N} | {step M} | {§4 field semantics · §4 path relativity · §5 envelope · key order · number format — name each rule and the literal it dictates} | {the exact call and the literal it returns on the pinned version} | {yes} |
+
+**Column 4 — the blueprint against itself.** Open every section that constrains a byte in this
+artifact and read it against the artifact, field by field. §4 saying a path field is *"relative to
+the run root"* and the golden file writing a parent-directory prefix into that field is the observed
+defect, and the two statements sat **twelve lines apart**. A rule you cannot name is a rule you have
+not checked.
+
+**Column 5 — the blueprint against reality.** Every runtime-produced string in the artifact —
+exception and parse-error text, stack-trace shape, key order, float formatting, locale and timezone
+rendering, sort collation — is version-specific. **Run the producing call on the pinned runtime and
+read what it says.** One `JSON.parse` would have caught the observed defect, where the embedded
+message was the previous major's format and the pinned engine emits two other families, neither
+matching. You have no shell: name the command and the expected literal in your return value as a gap
+the main thread executes, or drop the literal.
+
+**A row you cannot complete is a literal you may not write.** Replace the byte-exact comparison with
+a property the step can assert — a schema validation, field-by-field assertions, or a diff normalised
+to strip the runtime-specific part — and state in the criterion that it *is* the property (§9 rule
+12). Never leave the mismatch and describe the repair in §20.2: a builder who must decide that the
+blueprint's own format was wrong is making the clarifying decision this blueprint promised it would
+never require.
+
 ---
 
 ## 20. Acceptance Gate, Risks & Decision Log
@@ -1764,16 +1945,33 @@ check whose correct outcome is a non-zero exit is wrapped in an assertion (`{cmd
 rather than written bare; the expected code stays in the comment. And every line is decidable in the
 medium it runs in — §9 rule 12. A gate command that cannot pass, or cannot fail, is not a gate.
 
+**And every line that fails, fails for the reason it claims** — §9 rule 16. Nothing here, and nothing
+in the manual list below, may treat *"exits non-zero"* as a pass condition: a usage error — wrong
+arity, an unknown flag, an illegal flag combination — exits non-zero too, and a gate written that way
+passes vacuously and would keep passing after the property it checks broke. Assert the **specific**
+code (`{cmd}; test $? -eq 1`), or restructure the check so success is exit 0. `!` and `test $? -ne 0`
+accept every failure equally, including the ones that mean the command was malformed.
+
 Plus these manual gates, each checked once before launch:
 
 - [ ] Every step in §9 has its checkpoint tag in git (`git tag -l 'step-*'` lists one per step).
       The repository these tags live in is created by §10's Bootstrap block, not by a scaffolder.
 - [ ] Every file §10's *Files that must be committed* table names is present in a clean checkout
-      (`git ls-files --error-unmatch <path>` exits 0 for each) — no ignore pattern swallowed it.
+      (`git ls-files --error-unmatch <path>` exits 0 for each — **one path per invocation**, so a
+      failure is the file's, not the command's) — no ignore pattern swallowed it.
       **This is the home for whole-repository tracked-file assertions** (§9 rule 14): this gate runs
       after every step has committed, so it can decide what no step's own `Verify` can. A per-step
       version of the same check belongs in that step's `Checkpoint` block, after the commit — never
-      in its `Verify`.
+      in its `Verify`. **Write the not-ignored companion check per path and assert the code** —
+      `git check-ignore -q <path>; test $? -eq 1` for each, never `! git check-ignore -q <a> <b>`,
+      which exits 128 for usage and passes whatever the ignore file says (§9 rule 16).
+- [ ] The ignore file was in place before the first commit: `git log --diff-filter=A --format=%H`
+      shows it added in §10's Bootstrap commit, not in a §9 step's commit. Once a path is tracked, no
+      ignore rule ever excludes it — see §10, *The ignore file precedes the first commit*.
+- [ ] Every row of §19.6's *Byte-exact artifact reconciliation* table reads `Both confirmed: yes` —
+      each golden file, fixture and snapshot baseline was read against the blueprint rules that
+      constrain it **and** against the output of the producing call on the §11-pinned runtime
+      (§9 rule 15).
 - [ ] §10's Bootstrap block has been re-run once on an already-bootstrapped tree, **exited 0**, and
       changed nothing that mattered: the package manifest still lists every installed dependency and
       the next command still finds its binaries. This proves the guarded `workspace/` copy (§19)
