@@ -65,12 +65,12 @@ The Architect asks 2-3 questions to understand your idea. Based on your answers,
 ### Phase 2: Deep Dive
 > "Do you need user accounts? Payments? Real-time features?"
 
-Now it asks questions specific to YOUR type of project. It also researches best practices using skills like `/deep-research`.
+Now it asks questions specific to YOUR type of project. It also researches current best practices using skills like `/last30days`.
 
 ### Phase 3: Architecture
 > "Here's what I'd build: Next.js + Supabase + Clerk + Stripe on Vercel..."
 
-The Architect presents the complete tech stack and architecture with reasons for every decision. You confirm or adjust. For frontend projects, it designs a full visual system (colors, fonts, spacing) using `/ui-ux-pro-max`.
+The Architect presents the complete tech stack and architecture with reasons for every decision. You confirm or adjust. For frontend projects, it designs a full visual system (colors, fonts, spacing) using `ui-ux-pro-max`.
 
 ### Phase 4: Generate
 The Architect produces the final blueprint — a single `.md` file with **16 sections** covering everything Claude Code needs to build your project from zero to deployed.
@@ -218,23 +218,29 @@ the-architect/
 
 ## Skills Integration
 
-The Architect leverages Claude Code skills during the design process:
+The Architect leverages Claude Code skills during the design process. **All of them are optional** —
+if one isn't installed, The Architect falls back to its own knowledge base and keeps going.
 
-| Skill | Used For |
-|-------|----------|
-| `/deep-research` | Researching technologies and best practices |
-| `/ui-ux-pro-max` | Designing visual systems (colors, fonts, spacing) |
-| `/find-skills` | Discovering skills to recommend for the build phase |
-| `/playwright-cli` | Analyzing reference sites |
+A leading `/` means it's a real slash command. No slash means it auto-activates.
+
+| Skill | Used For | Install |
+|-------|----------|---------|
+| `/last30days` | Current opinion on a technology or niche | `/plugin marketplace add mvanhorn/last30days-skill` |
+| `ui-ux-pro-max` | Designing visual systems (colors, fonts, spacing) | `/plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill` |
+| `emil-design-eng` | Motion and interaction design | `npx skills@latest add emilkowalski/skills` |
+| `agent-browser` | Analyzing reference sites | `npm install -g agent-browser` |
+| `find-skills` | Discovering skills for the build phase | `npx skills add vercel-labs/skills --skill find-skills -g` |
 
 And recommends skills for the **build phase** in the blueprint:
 
-| Skill | Recommended For |
-|-------|----------------|
-| `/frontend-design` | Building production-grade UIs |
-| `/shadcn-ui` | Setting up component libraries |
-| `/seo-audit` | SEO auditing after build |
-| `/humanizer` | Making content sound natural |
+| Skill | Recommended For | Install |
+|-------|----------------|---------|
+| `frontend-design` | Building production-grade UIs | `/plugin marketplace add anthropics/skills` |
+| `playwright-cli` | E2E testing | `npm install -g @playwright/cli@latest` |
+| `/claude-seo-ai:audit` | SEO + AI-answer-engine visibility after build | `/plugin marketplace add Hainrixz/claude-seo-ai` |
+| `/humanizalo` | Making content sound natural (EN/ES) | `git clone https://github.com/Hainrixz/humanizalo.git ~/.claude/skills/humanizalo` |
+
+Full registry with licenses, star counts, and fallbacks: [`knowledge/skills-registry.md`](knowledge/skills-registry.md).
 
 ---
 
@@ -303,12 +309,12 @@ The Architect hace 2-3 preguntas para entender tu idea. Con tus respuestas, clas
 ### Fase 2: Profundizacion
 > "Necesitas cuentas de usuario? Pagos? Funciones en tiempo real?"
 
-Ahora hace preguntas especificas para TU tipo de proyecto. Tambien investiga mejores practicas usando skills como `/deep-research`.
+Ahora hace preguntas especificas para TU tipo de proyecto. Tambien investiga las mejores practicas actuales usando skills como `/last30days`.
 
 ### Fase 3: Arquitectura
 > "Esto es lo que yo construiria: Next.js + Supabase + Clerk + Stripe en Vercel..."
 
-The Architect presenta el tech stack completo y la arquitectura con razones para cada decision. Tu confirmas o ajustas. Para proyectos con frontend, diseña un sistema visual completo (colores, fuentes, espaciado) usando `/ui-ux-pro-max`.
+The Architect presenta el tech stack completo y la arquitectura con razones para cada decision. Tu confirmas o ajustas. Para proyectos con frontend, diseña un sistema visual completo (colores, fuentes, espaciado) usando `ui-ux-pro-max`.
 
 ### Fase 4: Generar
 The Architect produce el blueprint final — un solo archivo `.md` con **16 secciones** cubriendo todo lo que Claude Code necesita para construir tu proyecto de cero a desplegado.
@@ -456,23 +462,29 @@ the-architect/
 
 ## Integracion de Skills
 
-The Architect usa skills de Claude Code durante el proceso de diseño:
+The Architect usa skills de Claude Code durante el proceso de diseño. **Todas son opcionales** — si
+alguna no esta instalada, The Architect usa su propia base de conocimiento y sigue adelante.
 
-| Skill | Se Usa Para |
-|-------|-------------|
-| `/deep-research` | Investigar tecnologias y mejores practicas |
-| `/ui-ux-pro-max` | Diseñar sistemas visuales (colores, fuentes, espaciado) |
-| `/find-skills` | Descubrir skills para recomendar en la fase de construccion |
-| `/playwright-cli` | Analizar sitios de referencia |
+Un `/` al inicio significa que si es un slash command. Sin `/` significa que se auto-activa.
+
+| Skill | Se Usa Para | Instalacion |
+|-------|-------------|-------------|
+| `/last30days` | Opinion actual sobre una tecnologia o nicho | `/plugin marketplace add mvanhorn/last30days-skill` |
+| `ui-ux-pro-max` | Diseñar sistemas visuales (colores, fuentes, espaciado) | `/plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill` |
+| `emil-design-eng` | Diseño de movimiento e interaccion | `npx skills@latest add emilkowalski/skills` |
+| `agent-browser` | Analizar sitios de referencia | `npm install -g agent-browser` |
+| `find-skills` | Descubrir skills para la fase de construccion | `npx skills add vercel-labs/skills --skill find-skills -g` |
 
 Y recomienda skills para la **fase de construccion** en el blueprint:
 
-| Skill | Recomendado Para |
-|-------|-----------------|
-| `/frontend-design` | Construir UIs de grado produccion |
-| `/shadcn-ui` | Configurar librerias de componentes |
-| `/seo-audit` | Auditoria SEO despues de construir |
-| `/humanizer` | Hacer que el contenido suene natural |
+| Skill | Recomendado Para | Instalacion |
+|-------|-----------------|-------------|
+| `frontend-design` | Construir UIs de grado produccion | `/plugin marketplace add anthropics/skills` |
+| `playwright-cli` | Testing E2E | `npm install -g @playwright/cli@latest` |
+| `/claude-seo-ai:audit` | SEO y visibilidad en motores de respuesta IA | `/plugin marketplace add Hainrixz/claude-seo-ai` |
+| `/humanizalo` | Hacer que el contenido suene natural (EN/ES) | `git clone https://github.com/Hainrixz/humanizalo.git ~/.claude/skills/humanizalo` |
+
+Registro completo con licencias, estrellas y respaldos: [`knowledge/skills-registry.md`](knowledge/skills-registry.md).
 
 ---
 

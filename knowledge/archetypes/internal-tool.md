@@ -103,11 +103,14 @@ src/
 
 ## Skills for Build Phase
 
+Install commands and fallbacks: `knowledge/skills-registry.md`. No slash = auto-activating.
+
 | Skill | When |
 |-------|------|
-| `/shadcn-ui` | Setting up table, form, and dialog components |
-| `/frontend-design` | Dashboard layout and data visualization |
-| `/ui-ux-pro-max` | Color system for data visualization |
+| `frontend-design` | Dashboard layout and data visualization |
+| `ui-ux-pro-max` | Color system for data visualization; table, form, and dialog styling |
+| `playwright-cli` | E2E tests for the core admin workflows |
+| `pdf` | If the tool exports PDF reports |
 
 ## See Also
 

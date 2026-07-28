@@ -117,10 +117,13 @@ assets/
 
 ## Skills for Build Phase
 
+Install commands and fallbacks: `knowledge/skills-registry.md`. No slash = auto-activating.
+
 | Skill | When |
 |-------|------|
-| `/ui-ux-pro-max` | Design system and component styling |
-| `/deep-research` | Platform-specific best practices |
+| `ui-ux-pro-max` | Design system and component styling |
+| `emil-design-eng` | Screen transitions, gestures, and micro-interactions |
+| `/last30days` | Current opinion on platform-specific practices and SDK changes |
 
 ## See Also
 

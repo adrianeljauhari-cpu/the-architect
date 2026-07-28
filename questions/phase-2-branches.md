@@ -48,7 +48,7 @@ After classifying the project in Phase 1, use the matching section below. Ask 3-
 
 **Building blocks to load:**
 - If CMS needed → `knowledge/building-blocks/frontend-stacks.md` (Astro/Next.js comparison)
-- If SEO priority → note `/seo-audit` skill for build phase
+- If SEO priority → note `/claude-seo-ai:audit` and `:geo` skills for build phase
 - Always load → `knowledge/building-blocks/deployment-patterns.md`
 
 ---

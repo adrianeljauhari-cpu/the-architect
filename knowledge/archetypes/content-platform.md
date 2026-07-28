@@ -120,12 +120,15 @@ sanity/                         # Sanity Studio config (if using Sanity)
 
 ## Skills for Build Phase
 
+Install commands and fallbacks: `knowledge/skills-registry.md`. No slash = auto-activating.
+
 | Skill | When |
 |-------|------|
-| `/frontend-design` | Content pages, homepage layout |
-| `/seo-audit` | After content pages are built |
-| `/ui-ux-pro-max` | Typography and reading experience design |
-| `/humanizer` | If writing sample/seed content |
+| `frontend-design` | Content pages, homepage layout |
+| `ui-ux-pro-max` | Typography and reading experience design |
+| `/claude-seo-ai:audit` `:geo` | After content pages are built — classic SEO plus AI-answer-engine visibility |
+| `/humanizalo` | If writing sample/seed content |
+| `pdf` | If the platform exports or ingests PDFs |
 
 ## See Also
 

@@ -108,12 +108,15 @@ public/
 
 ## Skills for Build Phase
 
+Install commands and fallbacks: `knowledge/skills-registry.md`. No slash = auto-activating.
+
 | Skill | When |
 |-------|------|
-| `/frontend-design` | Building the landing page and app layouts |
-| `/shadcn-ui` | Setting up and customizing shadcn components |
-| `/ui-ux-pro-max` | Design system decisions during build |
-| `/seo-audit` | After landing page is built |
+| `frontend-design` | Building the landing page and app layouts |
+| `ui-ux-pro-max` | Design system decisions during build |
+| `emil-design-eng` | Transitions and micro-interactions in the app shell |
+| `/claude-seo-ai:audit` | After landing page is built |
+| `playwright-cli` | E2E tests for auth, core CRUD, and checkout |
 
 ## See Also
 

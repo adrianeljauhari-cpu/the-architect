@@ -102,12 +102,15 @@ public/
 
 ## Skills for Build Phase
 
+Install commands and fallbacks: `knowledge/skills-registry.md`. No slash = auto-activating.
+
 | Skill | When |
 |-------|------|
-| `/frontend-design` | Every section of the landing page |
-| `/ui-ux-pro-max` | Design system, color palette, typography |
-| `/seo-audit` | After site is built — full audit |
-| `/humanizer` | If writing marketing copy |
+| `frontend-design` | Every section of the landing page |
+| `ui-ux-pro-max` | Design system, color palette, typography |
+| `emil-design-eng` | Scroll and reveal animations |
+| `/claude-seo-ai:audit` `:geo` | After site is built — classic SEO plus AI-answer-engine visibility |
+| `/humanizalo` | If writing marketing copy |
 
 ## See Also
 

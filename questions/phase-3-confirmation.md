@@ -27,7 +27,9 @@ Keep it to ONE message. Dense, scannable, under 40 lines.
 
 **Skip this question entirely for API-only or backend-only projects.**
 
-After the user responds, invoke `/ui-ux-pro-max` to select: color palette, font pairing, and component style based on their preferences.
+After the user responds, use `ui-ux-pro-max` to select: color palette, font pairing, and component style based on their preferences. Use `emil-design-eng` for motion and interaction decisions.
+
+Both auto-activate — they are not slash commands. If neither is installed, fall back to `knowledge/building-blocks/styling-systems.md` and commit to one explicit direction with real hex values anyway. Never leave the design system to the builder.
 
 ### Q3: Hard Constraints (only if not covered)
 "Any libraries or tools you definitely want — or definitely don't want?"

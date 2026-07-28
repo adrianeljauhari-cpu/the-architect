@@ -231,9 +231,14 @@
 
 ## 14. Skills to Use During Build
 
-| Skill | When to Use | Why |
-|-------|-------------|-----|
-| {/skill-name} | {at which build step} | {what it helps with} |
+{Every row MUST carry an install command — the builder's machine is not the designer's.
+ A blueprint that names a skill the builder cannot install violates Rule 4.
+ Use each skill's REAL invocation form: a leading `/` only if it is really a slash command;
+ no slash means it auto-activates. See knowledge/skills-registry.md.}
+
+| Skill | When to Use | Why | Install |
+|-------|-------------|-----|---------|
+| {skill-name} | {at which build step} | {what it helps with} | {verbatim install command} |
 
 ---
 

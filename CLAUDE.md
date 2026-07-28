@@ -28,16 +28,21 @@ Read the matching archetype file from `knowledge/archetypes/` before proceeding 
 Read `questions/phase-2-branches.md` — use the section matching the identified archetype. Ask 3-5 targeted questions. Read relevant `knowledge/building-blocks/*.md` files as needed for specific decisions (auth, database, deployment, etc.).
 
 **Skill integration during this phase:**
-- Use `/deep-research` when comparing unfamiliar technologies or when the user asks about something you need current data on
-- Use `/find-skills` once to discover skills that would help during the BUILD phase (not design phase)
+- Use `/last30days` when you need current opinion on a technology or niche. For version numbers and API shapes, use `WebFetch` against the official docs — always authoritative, always available.
+- Use `find-skills` once to discover skills that would help during the BUILD phase (not design phase)
+
+Both are optional. If a skill isn't installed, fall back and keep going — see `knowledge/skills-registry.md` §3.
 
 ### Phase 3: ARCHITECTURE
 
 Read `questions/phase-3-confirmation.md`. Present the proposed tech stack and architecture with clear rationale for each decision. Be opinionated — recommend what you believe is best, explain why.
 
 **Skill integration during this phase:**
-- Use `/ui-ux-pro-max` to design the visual system (colors, typography, spacing, component style) for any project with a frontend
-- If the user mentions a reference site, use `/chrome-bridge-automation` or `/playwright-cli` to screenshot and analyze it
+- Use `ui-ux-pro-max` to design the visual system (colors, typography, spacing, component style) for any project with a frontend
+- Use `emil-design-eng` for motion and interaction decisions — easing, duration, enter/exit behavior
+- If the user mentions a reference site, use `agent-browser` to read and analyze it. If the site is behind a login, escalate to `browser-harness`, which drives the user's real Chrome.
+
+These auto-activate — they are **not** slash commands. Writing `/ui-ux-pro-max` does nothing.
 
 Ask for confirmation or adjustments before generating.
 
@@ -54,16 +59,27 @@ Ask for confirmation or adjustments before generating.
 
 ## Skill Integration Reference
 
+Full table with install commands, licenses, and fallbacks: `knowledge/skills-registry.md`.
+
+A leading `/` means it really is a slash command. No slash means it **auto-activates** — naming it
+with a slash is a silent no-op.
+
 | Skill | When to Use |
 |-------|-------------|
-| `/deep-research` | Comparing technologies, researching best practices, unfamiliar tools |
-| `/ui-ux-pro-max` | Designing visual system for frontend projects |
-| `/find-skills` | Discovering skills to recommend for the build phase |
-| `/frontend-design` | Do NOT use during design — recommend it in the blueprint for the builder |
-| `/shadcn-ui` | Do NOT use during design — recommend it in the blueprint if shadcn is chosen |
-| `/seo-audit` | Reference in blueprint for marketing sites and content platforms |
-| `/playwright-cli` | Analyzing reference sites the user shares |
-| `/chrome-bridge-automation` | Alternative for analyzing reference sites (uses user's Chrome with sessions) |
+| `/last30days` | Current opinion on a technology or niche during design |
+| `find-skills` | Discovering skills to recommend for the build phase |
+| `ui-ux-pro-max` | Designing the visual system for frontend projects |
+| `emil-design-eng` | Motion and interaction decisions during design |
+| `agent-browser` | Reading and analyzing reference sites the user shares |
+| `browser-harness` | Escalation for reference sites behind a login (uses the user's real Chrome) |
+| `pdf` | Reading client-supplied spec PDFs, RFPs, brand guides in Phase 1 |
+| `frontend-design` | Do NOT use during design — recommend it in the blueprint for the builder |
+| `/claude-seo-ai:audit` | Reference in blueprint for marketing sites and content platforms |
+| `/humanizalo` | Reference in blueprint when the project includes written content |
+
+**Never hard-depend on a skill.** If one isn't installed, fall back to the knowledge base and
+built-in `WebSearch`/`WebFetch`, say so in one line, and keep going. Never block generation on a
+missing skill.
 
 ---
 

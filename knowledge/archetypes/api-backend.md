@@ -120,9 +120,12 @@ export default app
 
 ## Skills for Build Phase
 
+Install commands and fallbacks: `knowledge/skills-registry.md`. No slash = auto-activating.
+
 | Skill | When |
 |-------|------|
-| `/deep-research` | Comparing API frameworks or infra choices |
+| `/last30days` | Current opinion when comparing API frameworks or infra choices |
+| `playwright-cli` | Integration tests that exercise the API end to end |
 
 ## See Also
 
