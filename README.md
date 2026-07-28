@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="assets/hero.webp" width="900" alt="A technical blueprint on the left dissolving into a running software system on the right — floating UI panels, a database, and API nodes joined by threads of light." />
-</p>
-
-<p align="center">
   <h1 align="center">The Architect</h1>
   <p align="center">
     <strong>A Claude Code meta-agent that designs complete software blueprints.</strong>
@@ -34,8 +30,6 @@
 Imagine you want to build a house. Before anyone picks up a hammer, you need a **blueprint** — a detailed plan that shows every room, every wall, every pipe, and every wire. Without it, the builders wouldn't know what to do.
 
 **The Architect does this for software.**
-
-![Three stages left to right — you describe it, The Architect designs it, Claude Code builds it — each panel brighter than the last.](assets/flow.webp)
 
 ```
 You describe it     →  "a SaaS for restaurant reservations, team accounts, Stripe"
@@ -107,8 +101,6 @@ The Architect is required to tell you the estimate before it starts. If it doesn
 
 ### The two gates (new in v2)
 
-![A dark corridor with two lit archways in a row — Gate A, zero open questions; Gate B, adversarial pre-mortem — and a bright doorway marked GENERATE at the far end.](assets/gates.webp)
-
 Phase 4 does not run until both pass. Neither is optional.
 
 **Gate A — zero `[NEEDS CLARIFICATION]` markers.** Before presenting anything, The Architect scans its own draft and emits a marker for every decision still underspecified — scope boundaries, delete semantics, who can see whose data, who owns the API keys. Each marker is closed one of three ways: you answer it, you confirm a stated default, or it becomes an explicit Non-Goal. Entering generation with an open marker is forbidden.
@@ -124,8 +116,6 @@ Phase 4 does not run until both pass. Neither is optional.
 A blueprint with **20 fixed sections**. Section 9, the build order, is what the other 19 exist to support.
 
 **Every build step carries four fields: `Do`, `Done when`, `Verify`, `Checkpoint`.** This is the anti-drift fix. In v1, steps had no definition of done — so an autonomous builder had no stopping condition, over-built, and declared victory on work that never ran.
-
-![The four fields of a build step, stacked — Do (what to build), Done when (observable acceptance criteria), Verify (a command that must exit zero), Checkpoint (a rollback target). Every step. No exceptions.](assets/build-step.webp)
 
 Here's one real step, abridged from the worked example in [`templates/blueprint-template.md`](templates/blueprint-template.md):
 
@@ -208,8 +198,6 @@ Everything inline. One file to send, paste, or commit anywhere.
 
 ## The 14 shapes
 
-![Fourteen tiles in two rows of seven, each a minimal glyph — browser, rocket, phone, server, dashboard, feed, robot, media, cart, terminal, extension, desktop, automation, pipeline. Caption: what a thing is, never what it is written in.](assets/shapes.webp)
-
 v1 had 6 archetypes. v2 has 14 shapes, and they're stack-agnostic — a shape describes *what a thing is*, never what it's written in.
 
 | Shape | What it covers | Default track | |
@@ -234,8 +222,6 @@ Ambiguous brief? It names the two candidates, says which it would pick and why, 
 ---
 
 ## The 3-axis knowledge split
-
-![Three luminous axes from one origin — Shape (what is it?), Runtime track (what is it written in?), Capability (what does it do?) — with a badge on the runtime axis reading: version pins live here only.](assets/three-axes.webp)
 
 **This is the intellectual core of v2.** v1 hardcoded its stack into 13 separate files — every archetype carried its own table of frameworks and versions. Refreshing one library meant editing thirteen files, so nobody did, and the knowledge base went stale in four months. v2 separates three orthogonal questions so a refresh edits **one file**, and a subagent verifies the numbers live at design time anyway.
 
@@ -425,8 +411,6 @@ Imagina que quieres construir una casa. Antes de que alguien agarre un martillo,
 
 **The Architect hace esto para software.**
 
-![Tres etapas de izquierda a derecha — tú lo describes, The Architect lo diseña, Claude Code lo construye — cada panel más luminoso que el anterior.](assets/flow.webp)
-
 ```
 Tú lo describes        →  "un SaaS de reservaciones de restaurante, cuentas de equipo, Stripe"
 The Architect lo diseña →  te entrevista, elige el stack, escribe el blueprint
@@ -497,8 +481,6 @@ The Architect está obligado a darte el estimado antes de empezar. Si no lo hace
 
 ### Los dos gates (nuevos en v2)
 
-![Un pasillo oscuro con dos arcos iluminados en fila — Gate A, cero preguntas abiertas; Gate B, pre-mortem adversarial — y una puerta brillante marcada GENERATE al fondo.](assets/gates.webp)
-
 La Fase 4 no corre hasta que ambos pasen. Ninguno es opcional.
 
 **Gate A — cero marcadores `[NEEDS CLARIFICATION]`.** Antes de presentar nada, The Architect revisa su propio borrador y emite un marcador por cada decisión aún subespecificada — límites de alcance, semántica de borrado, quién puede ver los datos de quién, quién es dueño de las API keys. Cada marcador se cierra de tres maneras: lo respondes, confirmas un default declarado, o se convierte en un Non-Goal explícito. Entrar a generación con un marcador abierto está prohibido.
@@ -514,8 +496,6 @@ La Fase 4 no corre hasta que ambos pasen. Ninguno es opcional.
 Un blueprint con **20 secciones fijas**. La Sección 9, el orden de construcción, es a lo que sirven las otras 19.
 
 **Cada paso de construcción lleva cuatro campos: `Do`, `Done when`, `Verify`, `Checkpoint`.** Este es el arreglo contra la deriva. En v1 los pasos no tenían definición de terminado — así que un constructor autónomo no tenía condición de parada, sobre-construía, y cantaba victoria sobre trabajo que nunca corrió.
-
-![Los cuatro campos de un paso de construcción, apilados — Do (qué construir), Done when (criterios de aceptación observables), Verify (un comando que debe salir en cero), Checkpoint (un punto de retorno). Cada paso. Sin excepciones.](assets/build-step.webp)
 
 Aquí un paso real, abreviado del ejemplo trabajado en [`templates/blueprint-template.md`](templates/blueprint-template.md):
 
@@ -598,8 +578,6 @@ Todo inline. Un archivo para mandar, pegar o commitear donde sea.
 
 ## Los 14 shapes
 
-![Catorce tiles en dos filas de siete, cada uno un glifo mínimo — navegador, cohete, teléfono, servidor, dashboard, feed, robot, medios, carrito, terminal, extensión, escritorio, automatización, pipeline. Pie: qué es una cosa, nunca en qué está escrita.](assets/shapes.webp)
-
 v1 tenía 6 arquetipos. v2 tiene 14 shapes, y son agnósticos al stack — un shape describe *qué es una cosa*, nunca en qué está escrita.
 
 | Shape | Qué cubre | Track por defecto | |
@@ -624,8 +602,6 @@ v1 tenía 6 arquetipos. v2 tiene 14 shapes, y son agnósticos al stack — un sh
 ---
 
 ## La división de conocimiento en 3 ejes
-
-![Tres ejes luminosos desde un mismo origen — Shape (¿qué es?), Runtime track (¿en qué está escrito?), Capability (¿qué hace?) — con una insignia sobre el eje de runtime que dice: aquí y solo aquí viven las versiones.](assets/three-axes.webp)
 
 **Este es el núcleo intelectual de v2.** v1 tenía el stack hardcodeado en 13 archivos distintos — cada arquetipo cargaba su propia tabla de frameworks y versiones. Refrescar una librería significaba editar trece archivos, así que nadie lo hacía, y la base de conocimiento se puso rancia en cuatro meses. v2 separa tres preguntas ortogonales para que un refresh edite **un solo archivo**, y de todos modos un subagente verifica los números en vivo al momento de diseñar.
 
