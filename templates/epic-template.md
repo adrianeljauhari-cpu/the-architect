@@ -241,15 +241,30 @@ command below, on this machine, during the build.
 1. **WHEN** {trigger} **THE SYSTEM SHALL** {observable response}.
 2. **WHEN** {edge case} **THE SYSTEM SHALL** {observable response}.
 
-**Verify** — every command, in order, run from the project root. All must exit 0.
+**Verify** — every command, in order, run from the project root. Each one exits 0 when this task is
+correct; the last one exiting 0 is what makes the task done.
 
 ```bash
 {pm} test {path}
 {pm} test {second path, if the task has more than one check}
 ```
 
-These lines are this task's `verify` **array** in `tasks.json`, one per line. If the array has three
-commands, three lines appear here — a task is not done until the last one passes.
+These lines are this task's `verify` **array** in `tasks.json`, one per line, **copied with any
+exit-code wrapping intact** — `{cmd}; test $? -eq {n}`, `! grep -q …`. Do not unwrap them into the
+"cleaner" bare command: a line whose success case is a non-zero exit is a permanently red gate. If
+the array has three commands, three lines appear here — a task is not done until the last one passes.
+
+**Checkpoint**
+
+```bash
+git add -A && git commit -m "E{N}-T1: {title}"
+git tag {this task's `checkpoint` value from `tasks.json`, verbatim}
+```
+
+Run both after the last `Verify` command exits 0, before starting the next task. The tag is this
+task's rollback target and the thing the build's final gate counts — if the next task goes wrong,
+`git reset --hard` to *this* tag rather than debugging forward. Never invent the tag: copy the
+`checkpoint` field. If it is missing from `tasks.json`, stop and report rather than making one up.
 
 ### `E{N}-T2` — {Title}
 
@@ -281,11 +296,13 @@ waits on a human or an external service blocks the whole build behind it.
 - [ ] Every task in this epic is `done` in `tasks.json` — no task left `in_progress`.
 - [ ] Every `verify` command of every task in this epic passed, not just the first one.
 - [ ] No `verify` command was edited, and none was skipped because a file it names did not exist.
+- [ ] **Every task in this epic has its `checkpoint` tag in version control** — one tag per task,
+      matching the `checkpoint` value in `tasks.json`. `git tag -l 'step-*'` lists them.
 - [ ] Gate command passes clean, run from the project root.
 - [ ] Every "Produced" contract above exists with the stated signature.
 - [ ] No file outside the subtree was modified.
 - [ ] `.env.example` updated if this epic added a variable.
-- [ ] One commit per task, each prefixed with its task id.
+- [ ] One commit per task, each prefixed with its task id, each followed by its checkpoint tag.
 ````
 
 ---

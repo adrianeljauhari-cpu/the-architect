@@ -15,7 +15,7 @@ You run in isolated context on purpose. A 2,000-line generation would bury the i
 it costs the main thread nothing but your return message. Spend the context — read everything you
 need — and return a short, precise summary.
 
-Last verified: 2026-07-27
+Last verified: 2026-07-28
 
 ---
 
@@ -117,7 +117,20 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
      a trailing comment. Bootstrap is what a stuck builder re-runs, and a bare recursive copy over
      an already-bootstrapped tree reverts the package manifest you emitted to its dependency-free
      version — after which the next command fails naming a missing binary and reads as a broken
-     install. See *The workspace copy must be idempotent*.
+     install. See *The workspace copy must be idempotent* — **and check that the guard exits 0 on the
+     path it guards against**, because `cp -Rn` does not on BSD/macOS. See *A guard must not itself
+     fail*.
+
+     **These files live inside the project, so the project's tools will find them.** The bundle sits
+     at `<project>/blueprints/<slug>/`, and a config emitted under `workspace/` is a second root
+     config in one tree — enough to make a formatter exit 1 before checking anything. Every config
+     you emit excludes the bundle path in its own syntax. See *A bundle inside the project is part of
+     the tool surface*.
+
+     **And the emitted files must agree with each other.** Every value two of them state — an output
+     path, an entry point, a binary name, a module root, a port — is one claim written twice, and
+     §19.6's *Cross-artifact value reconciliation* table is where you name its single source and
+     confirm every other copy matches. See *Emitted artifacts form a system*.
 
    **Every workspace file must pass the blueprint's own gates.** §19 tells the builder to copy this
    directory into the project root as its *first* action — so the very next `lint`/`format --check`
@@ -147,7 +160,7 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
     for exactly what "identical" means, because the two templates render the same criterion
     differently on purpose and a literal byte match is impossible.
 11. **Sweep your own output.** Re-read what you wrote and grep for surviving placeholders. Then run
-    the **fourteen** mechanical self-checks below before you emit anything, all of which apply in
+    the **eighteen** mechanical self-checks below before you emit anything, all of which apply in
     both emission modes:
     - **Verify parity** — every path a Verify command touches is created by a step or emitted in
       §19.6.
@@ -181,8 +194,18 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
       run without reverting emitted files. See *The workspace copy must be idempotent*.
     - **No contract from a NOT APPLICABLE section** — no step references a section you marked
       `NOT APPLICABLE`. See *A NOT APPLICABLE section cannot carry a contract*.
+    - **Cross-artifact value agreement** — every value that appears in two or more emitted artifacts
+      has one named source and matches character for character everywhere else. See *Emitted
+      artifacts form a system*.
+    - **Entry point exercised where it is created** — the first step producing an executable,
+      published entry point, or served endpoint *runs* it in its own `Verify`, and every
+      cross-artifact contract is gated at the earliest step where both sides exist. See *Fail fast*.
+    - **Bundle-path exclusion** — every emitted config excludes the bundle's own path, in that
+      config's syntax. See *A bundle inside the project is part of the tool surface*.
+    - **Guards exit 0** — every command you added as a guard exits 0 on the path it guards against,
+      on every platform the build targets. See *A guard must not itself fail*.
 
-    All fourteen catch defects you must *fix*, not defects you may ship. The validator files each of
+    All eighteen catch defects you must *fix*, not defects you may ship. The validator files each of
     them, and most are BLOCKER.
 12. **Return the summary.** Path, section coverage as `n/N`, artifacts written, assumptions, gaps,
     version provenance.
@@ -516,6 +539,136 @@ only when you can say *which resolver's* default. If two contexts need different
 specifier, that is not a compromise to leave to the builder: pick the form, emit the flag that makes
 the other context accept it, and record both in the matrix.
 
+### Emitted artifacts form a system — they must agree with each other
+
+**Every rule above makes one file individually correct. This one makes the files agree.** A build
+config that declares where output lands and a manifest that declares where the entry point is are
+making *the same claim twice*, in two files you wrote, and nothing in this repo was comparing them.
+Both pass every per-file check, because no per-file check ever opens two files at once.
+
+**The failure, told once so you recognise its shape.** The blueprint emitted a compiler config that
+built `src/cli/index.ts` → `dist/cli/index.js`, and a package manifest that declared its binary at
+`dist/cli.js`. About **thirty** `Verify` commands, the packaging step and the install smoke test all
+named `dist/cli.js`. Both files were blueprint-authored and both were declared off-limits to the
+builder, so a literal builder had no legal escape: every workaround either contradicted an explicit
+instruction or invented a mechanism. **Steps 8–14 — the entire CLI, renderer, exit codes, config,
+docs, packaging and install half of the build — were unreachable because one path was written two
+ways.** Fixing it costs one line.
+
+**Generalise past that ecosystem.** Any value that appears in more than one artifact you emit is a
+duplicated claim: an output path, an entry point, a binary or command name, a module root, a port, a
+package name, an image tag, a service or database name, a directory. The names of the files differ by
+ecosystem; the fact that two of them describe the same thing does not.
+
+**The self-check, one mechanical pass before you emit:**
+
+1. **Extract.** For each artifact you emit — every §19.6 config, the manifest, the compose file,
+   `settings.json`, the CI workflow, §3's tree — list every path, name, port and identifier it
+   contains. Include the values that appear in §9's commands and §20.1's gate; those are artifacts
+   too, they just execute instead of sitting on disk.
+2. **Merge and find the duplicates.** Any value appearing two or more times across that merged list
+   is a cross-artifact value.
+3. **Name one source.** For each, decide which file *owns* the decision — the compiler config owns
+   the output path, the manifest owns the package name — and write that file's literal string into
+   §19.6's *Cross-artifact value reconciliation* table.
+4. **Compare, character for character.** Open every other appearance and match the strings literally.
+   **Values differing by a prefix, a suffix, a separator or a pluralisation are the whole failure
+   mode** — `dist/cli.js` versus `dist/cli/index.js` differ by exactly that much and read identically
+   at a glance. Mark the row `Compared: yes` only after you have actually looked at each one.
+
+Then hand the result to the fail-fast rule below: for every row, the earliest step where both sides
+exist is the step whose `Verify` has to exercise the contract.
+
+### Fail fast — the entry point is exercised in the step that creates it
+
+**The contradiction above was survivable in principle: one line, one file.** What made it cost seven
+steps was that **nothing ran the built binary until step 8.** Seven steps of gates went green while
+the defect sat there, because every one of them built, type-checked, linted and unit-tested — and
+none of them *invoked* the thing the manifest declared.
+
+**So: the first step that produces an executable, a published entry point, or a served endpoint must
+have a `Verify` that RUNS it, not merely builds it.** Compiling proves the compiler was happy.
+Running proves the output landed where the manifest says, that the runtime can find it, that the
+permission bit and the interpreter line are right, and that the two files agree.
+
+| Not a gate | A gate |
+|---|---|
+| `{pm} build`  `# expect: exit 0` | `{pm} build && ./dist/cli.js --version`  `# expect: exit 0, prints the version` |
+| "the package is publishable" | `npm pack && npm i -g ./<tarball> && <bin> --help`  `# expect: exit 0` |
+| "the server builds" | `curl -sf localhost:3000/health`  `# expect: exit 0, body {"ok":true}` |
+| "the image builds" | `docker run --rm <image> --version`  `# expect: exit 0` |
+
+**And order for it.** More generally: **any contract between two emitted artifacts is exercised at
+the earliest step where both sides exist.** If step 1 emits the build config and step 2 emits the
+manifest, gate the contract at step 2 — not at the step that finally consumes the binary. A stub
+whose only job is to print a version string and exit 0 is a legitimate step 1 or 2, and it is
+replaced by real behaviour in the step that was going to build it anyway. That reordering costs
+nothing and converts a seven-step-deep discovery into a first-gate one.
+
+**The self-check:** list every artifact this build produces that is meant to be *run* — binaries,
+published entry points, containers, servers, workers, scheduled jobs. For each, find the step that
+first produces it and read that step's `Verify`. If no line in it executes the artifact, add one. Then
+walk §19.6's cross-artifact table: for each row, name the step number where both sides first exist and
+confirm that step's `Verify` would catch a disagreement. **A defect that costs one line to fix must
+not cost seven steps to discover.**
+
+### A bundle inside the project is part of the tool surface
+
+**In bundle mode your output lands at `<project>/blueprints/<slug>/`, and §19.6 emits real config
+files under its `workspace/`. That is a second copy of the project's configuration living inside the
+project's own tree** — and a whole family of tools finds configuration by *walking directories*
+rather than by being told where to look: formatters, linters, type-checkers, test runners, editor
+config, package-manager workspace resolution, in several ecosystems.
+
+**Reproduced live:** the formatter found **two** root configs in one tree and exited 1 **before
+checking a single file**, killing the last line of §10's Bootstrap block — the first command the
+builder ever runs. Neither config was wrong. The defect was that both existed in one tree, and the
+blueprint never said so.
+
+**So every config you emit — and every config a §10 scaffold generates that a gate depends on —
+excludes the bundle path, written as a literal line in that config's own syntax:** the formatter and
+linter ignore lists, the type-checker's exclude, the test and e2e runners' ignore patterns, the
+package manager's workspace globs, and anything else that globs the tree. Use the path as it appears
+from the project root (`blueprints/`), and record each line in §19.6's table. **Prose excludes
+nothing** — "the blueprints directory should be ignored" changes no tool's behaviour.
+
+**You cannot catch this by reading, and neither can a review.** Each file is individually correct;
+the failure exists only when the gate runs from the project root with the bundle present. §10's
+Bootstrap block *is* executed before the blueprint ships, so this comes back to you as a finding with
+the real error attached — write the exclusions instead of collecting them.
+
+**The self-check:** list every emitted config that discovers files by walking the tree. For each, ask
+what it does when it encounters `blueprints/<slug>/workspace/` containing a sibling of itself —
+duplicate-root error, double-formatting, tests collected twice, type errors from files no step owns.
+Every answer other than "it never looks there" needs an exclude line, in the file.
+
+### A guard must not itself fail
+
+**A guard is added to make a block safe to re-run. A guard that exits non-zero on exactly the path it
+guards against destroys the property it was added to provide** — under `set -e`, which is how every
+unattended runner executes these blocks, the second run aborts at the guard.
+
+**The live example is the idempotent workspace copy.** Written as a no-clobber recursive copy,
+**`cp -Rn` exits 1 on BSD/macOS when it skips an existing file.** GNU `cp -n` exits 0 in the same
+situation. So the "safe to run twice" copy passes on one platform and fails on the other, and nothing
+about the line reveals which.
+
+Two questions for every command you add as a guard — the copy, conditional creates, idempotent
+migrations, `mkdir`, marker checks, `grep`-based tests:
+
+1. **What is its exit status on the guarded path?** Second run, the thing already exists, nothing to
+   do. Anything other than 0 is a broken guard: neutralise it explicitly (`… || true`, with the
+   reason in the trailing comment so nobody "simplifies" it away) or choose a form that exits 0 —
+   `rsync -a --ignore-existing` and the marker gate both do.
+2. **Is that status the same on every platform this build targets?** Exit codes differ across
+   implementations of the same-named tool far more often than behaviour does. Where they differ,
+   write the portable form or state which platform §10's block assumes.
+
+**The self-check:** grep your own §10 and §19 output for `||`, `-n`, `[ -e`, `--if-exists`,
+`IF NOT EXISTS`, and every copy or sync command. For each, write in one clause what a *second* run
+does and what it exits with. Then confirm §20.1's re-run gate says **exited 0**, not merely "changed
+nothing".
+
 ### Every env-reading tool needs a loader
 
 **A framework loads `.env`. A standalone tool does not.** Frameworks read the env file as part of
@@ -641,6 +794,10 @@ and ask, for each, what a second run does to a tree that already has emitted fil
 1…N. If the answer is "reverts them", guard it. Then extend the question to every other Bootstrap
 line — `git init`, migrations, seeds, scaffolders — because the block as a whole must be safe to run
 twice, and §20.1 now carries a manual gate that proves it.
+
+**Then check the guard's own exit status.** A no-clobber copy that returns non-zero when it skips —
+`cp -Rn` on BSD/macOS — breaks the second run under `set -e`, which is the exact scenario the guard
+exists for. See *A guard must not itself fail*.
 
 ### A NOT APPLICABLE section cannot carry a contract
 
@@ -860,7 +1017,7 @@ criteria, a verify command, and a Checkpoint tag
 
 **Verify commands in the settings.json allowlist:** 14/14 from §9, 7/7 from §20.1
 
-**Self-checks (all fourteen, both modes):** verify parity 31/31 paths created by a step or emitted in
+**Self-checks (all eighteen, both modes):** verify parity 31/31 paths created by a step or emitted in
 §19.6 · 0 invented filenames for generated artifacts · §11 pins installed 24/24 (19 by §10 Bootstrap,
 5 by steps 3, 6, 11; 0 orphans) · no step breaks an earlier gate — env validation lands in step 2 and
 requires only the 3 variables §10 marks "Required by step ≤ 2" · config completeness 4/4 emitted
@@ -878,7 +1035,14 @@ lines exit 0 on a correct step; the 2 that gate documented non-zero exit codes a
 assertion · medium feasibility: 18/18 checks observable by their executor — the export-surface check
 runs under the type checker, not a runtime import · re-runnable bootstrap: the workspace copy is
 non-clobbering and §20.1 carries the re-run gate · NOT APPLICABLE integrity: 3 sections marked
-NOT APPLICABLE, 0 inbound references from any step
+NOT APPLICABLE, 0 inbound references from any step · cross-artifact values: 6 values appear in 2+
+emitted artifacts, each with one named source and compared literally at all 19 appearances — the
+built CLI path is owned by `tsconfig.build.json` and matches `package.json` `bin`, §3's tree, the
+packaging step and 30 Verify lines · fail-fast: the CLI entry point is produced and **run**
+(`--version`, exit 0) at step 2, and all 6 cross-artifact contracts are gated at the earliest step
+where both sides exist · bundle-path exclusion: 4 tree-walking configs each carry a literal
+`blueprints/` exclude line · guards exit 0: 5 guarded Bootstrap commands checked, the workspace copy
+uses `rsync --ignore-existing` because `cp -Rn` exits 1 on BSD/macOS when it skips
 
 **Assumptions (technical defaults applied — confirm if wrong):**
 1. Vitest for unit tests — runtime-track default; no preference was given.
@@ -1023,6 +1187,35 @@ Resolve these in the main thread and re-invoke.
     phrase for a referent with literal content. If a step needs the contract, put the content
     somewhere concrete first — a fenced block in the step, a fixture in §19.6, or a section that
     actually applies.
+31. **Emitted artifacts form a system and must agree with each other.** *(Enforced by validator finding #30.)* Any value appearing in two or
+    more artifacts you emit — output path, entry point, binary or command name, module root, port,
+    package name, image tag, service or database name — is derived from **one** named source and
+    matched character for character everywhere else, in §19.6's *Cross-artifact value reconciliation*
+    table. Rule 21 makes each config individually correct; this is the missing half. A build config
+    that says where output lands and a manifest that says where the entry point is are the same claim
+    twice, and nothing compares them for you. One path written two ways (`dist/cli.js` vs
+    `dist/cli/index.js`) made seven of fourteen steps unreachable, with both files off-limits to the
+    builder.
+32. **The entry point is exercised in the step that creates it.** *(Enforced by validator finding #31.)* The first step producing an
+    executable, a published entry point, or a served endpoint has a `Verify` that **runs** it —
+    `--version`, `--help`, a curl to the endpoint, a container start — not merely one that builds it.
+    More generally, every contract between two emitted artifacts is gated at the earliest step where
+    both sides exist; pull a version-printing stub forward to step 1 or 2 if that is what it takes. A
+    defect costing one line to fix must not cost seven steps to discover.
+33. **A bundle placed inside the project is part of the tool surface.** *(Enforced by validator finding #32.)* The bundle sits at
+    `<project>/blueprints/<slug>/` and §19.6 emits real configs under its `workspace/`, so every tool
+    that discovers configuration by walking directories — formatter, linter, type-checker, test
+    runner, workspace resolver — sees two roots in one tree. Every config you emit excludes the
+    bundle path as a **literal line in that config's own syntax**; prose excludes nothing. A read-only
+    review cannot see this defect: only running the gate from the project root, with the bundle
+    present, produces it — and a formatter that finds two root configs exits 1 before checking a
+    single file, killing Bootstrap's last line.
+34. **A guard must not itself fail.** *(Enforced by validator finding #33.)* Any command you add to make a block re-runnable exits **0** on
+    the path it guards against, and you have considered whether its exit code is the same on every
+    platform the build targets. `cp -Rn` exits 1 on BSD/macOS when it skips an existing file and 0 on
+    GNU — under `set -e` that breaks the very "safe to run twice" property the guard was added to
+    provide. Use a form that exits 0 (`rsync -a --ignore-existing`, a marker gate) or neutralise it
+    explicitly with the reason in a trailing comment.
 
 ---
 

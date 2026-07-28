@@ -3,7 +3,7 @@
 > Say how long it will take, verify versions, decide the output format, compose, validate, write to
 > the user's directory, hand off.
 
-Last verified: 2026-07-27
+Last verified: 2026-07-28
 
 **Paths in this file:** every bare path (`templates/…`, `knowledge/…`, `questions/…`) is relative to
 the plugin root — open it as `${CLAUDE_PLUGIN_ROOT}/<path>`. The one exception is `./blueprints/`,
@@ -42,8 +42,8 @@ permanently — the builder agent has no one to ask.
 sits in silence, and it is by far the longest. Steps 1 through 7 together run **roughly 25–35
 minutes for a bundle** and **12–20 for a single file**: live registry calls for every pin, a full
 composition pass, at least one validator round trip, and a live smoke test in a scratch directory
-that runs the bootstrap, step 1, **and the first build step that touches the database** (Step 6).
-Nothing streams back while it happens.
+that runs the bootstrap **twice**, builds step 1, **runs the thing the build produces**, and runs
+**the first build step that touches the database** (Step 6). Nothing streams back while it happens.
 
 A user who was not warned does not experience that as thorough. They experience it as hung, and the
 previous version of this tool was liked precisely because it answered fast. Silence is the worst
@@ -52,8 +52,8 @@ option available to you here.
 Say three things, in three lines, in the user's language:
 
 1. **What you are about to do** — verify every version against the live registries, compose the
-   blueprint, validate it, run its bootstrap *and its first database step* once for real, write the
-   files.
+   blueprint, validate it, run its bootstrap *twice*, run *what it builds* and *its first database
+   step* once for real, write the files.
 2. **Roughly how long, as a range in minutes.** Give the real number. An honest half hour beats a
    cheerful "one moment" followed by twenty-five minutes of nothing.
 3. **That there is no intermediate output** — the next thing they see is the finished path and the
@@ -258,8 +258,14 @@ Hand it a complete brief — the subagent has no memory of the interview:
 - **Who authors the package manifest**, stated as a decision and not left open — see *Who authors the
   package manifest* immediately below. Say which of the two origins applies to this stack, in the
   brief, in one line.
-- **That §10's Bootstrap block will be executed verbatim in Step 6**, so every command in it must be
-  non-interactive and in the order it is run — no TTY prompts, no "then configure as needed".
+- **That §10's Bootstrap block will be executed verbatim in Step 6 — twice, back to back, with the
+  bundle sitting inside the scratch project at `blueprints/<slug>/`**, so every command in it must be
+  non-interactive, in the order it is run, safe on a tree that already has everything, and exiting 0
+  on its own no-op path — no TTY prompts, no "then configure as needed", no guard that reports
+  failure when it correctly skips.
+- **That Step 6 will RUN whatever the build produces** — the binary, the published entry point, the
+  container, the served endpoint — at the earliest step that produces it, not merely build it. A
+  build config and a manifest that disagree about where the artifact lands are caught there.
 
 ### Who authors the package manifest — decided here, not left to the writer
 
@@ -324,56 +330,172 @@ the end of this file. An unvalidated blueprint never ships; a self-validated one
 
 ---
 
-## Step 6 — Smoke-test the bootstrap **and the data layer**. You run it; nobody else can.
+## Step 6 — Smoke-test the bootstrap, the entry point **and the data layer**. Only you can run it.
 
 The validator reads. **This step executes.** A blueprint can pass every sweep in Step 5 and still be
 unbuildable, because the failures that kill step 1 are not visible from reading: a scaffolding tool
 that ignores the flag it documents, an approval prompt with no `--yes`, a generator that installs a
 package the blueprint said to skip, a peer range that only conflicts once the resolver runs. Reading
-cannot catch any of those. Running catches all of them, in about three minutes, before the user has
-the file.
+cannot catch any of those. Running catches all of them, in minutes, before the user has the file.
 
-**Stopping at step 1 is not enough, and this is settled by evidence rather than opinion.** Two live
-build tests ran this step, passed it, and then died anyway — the second one at step 3's literal first
-command. Both deaths were in the same place: the moment something *other than the toolchain* had to
-load. A migration CLI with no environment. A test runner whose config could not resolve the import
-guard the blueprint mandates on every server module. A seed script that died before its first query.
-None of those touch step 1, which is why step 1 kept passing while the blueprint kept failing.
+**Stopping at step 1 is not enough, and this is settled by evidence rather than opinion.** Four live
+build tests ran this step, passed it, and died anyway — each one somewhere the previous version of
+this step never reached:
 
-So this step runs **three** things, and the third is the one that has been catching the real defects.
-A fourth, short, is handed to you by the validator: running the blueprint's own formatter over
-`workspace/`, which the validator is structurally unable to do.
+| Build test | Where it died | What this step was missing |
+|---|---|---|
+| 1 and 2 | the first command that loaded something *other than the toolchain* — a migration CLI with no environment, a runner config that could not resolve a mandated import guard, a seed script that died before its first query | run 5, the data layer |
+| 3 | the last line of Bootstrap, because the bundle's `workspace/` held a second root config and the formatter found two roots in one tree and exited 1 before checking a file | run 0 — the scratch tree never contained the bundle, so a defect that only exists *with the bundle in place* could not reproduce |
+| 4 | step 8, on two blueprint-authored files that disagreed about where the binary lands — a build config emitting one path, a manifest declaring another, ~30 `Verify` commands naming the loser | run 4 — nothing invoked the binary until step 8, so seven steps of green gates preceded the discovery. A stuck builder's other move, re-running Bootstrap, hit a no-clobber copy that exits 1 on macOS and 0 on Linux — run 2 |
+
+Every one of those is a one-line fix discovered too late. This step is where "too late" is bought
+back, and it now costs about five minutes.
 
 **Only the main thread can do this.** `blueprint-writer` and `blueprint-validator` have no `Bash`.
 Every "run this before shipping" line in the templates and in `knowledge/stack-compatibility.md`
 is addressed here.
 
-### What to run
+### The runs, in order
 
-In a **scratch directory outside both the bundle and the user's project** — `mktemp -d`, never the
-cwd, never `./blueprints/`:
+Everything happens in **one scratch directory outside both the bundle and the user's project** —
+`mktemp -d`, never the cwd, never the real `./blueprints/`. Each run depends on the one before it.
+**Stop at the first failure and route it**; do not push past a broken run to collect more findings.
 
-1. **The §10 Bootstrap block, verbatim, in order,** every command, start to finish. Not a summary of
-   it, not the parts you think matter. If a command hangs on a prompt, that is the finding.
-2. **Build step 1's `Verify` block,** every command, checking each against the expected result its
-   trailing comment states.
-3. **The first `Verify` command in §9 that touches the DATA LAYER** — and everything §9 says must run
-   before it, so it can run at all.
-4. **The formatter/linter check over `workspace/`** — the half of validator Sweep 12 that is handed to
-   you by name, because the validator has no shell and cannot run a formatter. Copy `workspace/` into
-   the scratch project root exactly as §19 tells the builder to, then run **the check command the
-   blueprint itself mandates** (`<formatter> check .`, `<linter> .`) over that tree. A live run caught
-   two real mismatches here that no amount of reading had found. Copy it where §19 puts it — after
-   §10's Bootstrap has created the tree, before step 1 — so if §9 step 1 or §20.1 already runs that
-   command, run 2 covers this for free and you need only read its output. Any failure is
-   finding #22 and routes to *On failure* like every other: send it back to the writer, do not reformat
-   the file yourself.
+| # | Run | Ends when | Failure routes to |
+|---|---|---|---|
+| **0** | **Place the bundle** in the scratch tree at `<scratch>/blueprints/<slug>/` — the exact path §19 and Step 7 give it — **before any blueprint command runs** | the bundle is on disk *inside* the scratch project root | not a blueprint failure: if you cannot place it, the bundle is not the shape Step 3 defines → Step 7's tree check, then the writer |
+| **1** | **§10's Bootstrap block, verbatim, in order** — every command, start to finish | every command exits the way the blueprint says it does | *On failure* → writer |
+| **2** | **§10's Bootstrap block again**, unchanged, same directory, immediately after | **the whole block exits 0** and the tree is still usable | *On failure* → writer, validator finding #33 — a guard that fails on the path it guards against |
+| **3** | **Step 1** — implement its deliverables **from the blueprint's own literal content**, then run its `Verify` block | every Verify command matches the expected result its trailing comment states | *On failure* → writer. **Anything you had to supply that the blueprint does not state is itself the finding** |
+| **4** | **The entry point** — run whatever the earliest producing step produces: the binary, the published entry, the container, the served endpoint | it **runs** and exits 0 / returns the documented status | *On failure* → writer, validator findings #30 and #31 |
+| **5** | **The data layer** — the earliest §9 `Verify` that executes against it, plus everything §9 says must run before it | it passes as written, in §9's order | *On failure* → writer. Environmentally blocked → **not smoke-tested past the toolchain** |
+| **6** | **The formatter/linter check the blueprint itself mandates**, over the whole tree **with the bundle present** | exits 0 | *On failure* → writer, validator findings #22 and #32 |
 
 If the bootstrap needs environment variables, seed them from the `.env.example` the blueprint
 specifies, using §10's literal local values. If a command still needs a real secret, it is a
 partial-run case below — never invent a credential to get past a gate.
 
-### Finding the data-layer command (run 3)
+### Run 0 — the scratch tree must contain the bundle
+
+**Copy the emitted bundle into the scratch tree at `<scratch>/blueprints/<slug>/` before the first
+Bootstrap command.** In single-file mode, place the blueprint at
+`<scratch>/blueprints/<slug>-blueprint.md`. That is where Step 7 puts it and where §19 says it
+lives — a smoke test run in an empty directory is testing a layout no builder will ever have.
+
+Three of the things this step exists to catch are **only observable with the bundle in place**:
+
+- §10's `workspace/` copy has nothing to copy *from* if `workspace/` is not in the tree — the copy
+  either silently no-ops or fails for the wrong reason, and run 2's guard check tests nothing.
+- The nested-config failure (validator finding #32) exists *only* because the project's own tools
+  walk a tree that contains a second copy of their config. Absent bundle, absent defect, absent
+  finding — this is exactly why build test 3 shipped and then died on Bootstrap's last line.
+- Run 6's formatter check is meaningless over a tree the formatter would never have seen.
+
+Two rules on the copy:
+
+- **Copy, never symlink, and never run against the real bundle.** This step writes, installs and
+  deletes; the artifact in the user's cwd is never touched by it.
+- **Place it exactly where §19 says, not somewhere convenient.** `blueprints/<slug>/` from the
+  project root. A bundle parked one directory up reproduces nothing.
+
+### Run 2 — Bootstrap, a second time, must exit 0
+
+Run the **entire** §10 block again, unchanged, in the same directory, the moment run 1 succeeds.
+Execute it the way an unattended runner does: each command's status checked, the first non-zero
+aborting the block. **The block must exit 0.**
+
+This is the only way a guard that fails on its own no-op path ever surfaces, and re-running Bootstrap
+is the first thing a stuck builder does. Build test 4 found a no-clobber copy that **exits 1 on
+BSD/macOS when it skips an existing file and 0 on GNU** — the same line, passing on one platform and
+aborting the recovery path on the other, with nothing about it visible from reading. Only a second
+execution decides it, and only on this machine's platform.
+
+Then prove the tree survived it, with two cheap checks:
+
+1. The package manifest still lists every dependency the install put there — the guarded
+   `workspace/` copy did not revert it.
+2. One command from run 1's tail still finds its binaries.
+
+A block that exits 0 but reverts the manifest is the same finding wearing different clothes: the
+failure surfaces one command later as a missing binary and reads as a broken install. Both halves
+route to *On failure* as validator finding #33, and §20.1's re-run gate is what they prove.
+
+### Run 3 — implement step 1 from the blueprint, then gate it
+
+**Bootstrap does not do step 1's work.** It installs the toolchain and lays down the tree; step 1
+authors files. So "run step 1's `Verify` block" on its own is unsatisfiable for any blueprint whose
+step 1 creates something — the gates fail on files nobody wrote, and a literal reader either reports
+a false failure or quietly skips the run. Neither is the intent. **This is the intent:**
+
+1. **Implement step 1's deliverables yourself, in the scratch tree, using ONLY the blueprint's own
+   literal content** — the file bodies, fenced blocks, commands and instructions §9 step 1 contains,
+   plus whatever it explicitly points at in §19.6, §3 or another section. You are standing in for a
+   zero-context builder: you may copy from the blueprint, you may not supply from your own knowledge.
+2. **Then run step 1's `Verify` block,** every command, each against the expected result its trailing
+   comment states.
+3. **Step 1 only.** Do not implement step 2 to make a gate pass, and do not repair step 1's content
+   to make it compile.
+
+**If implementing step 1 requires anything the blueprint does not state — a file body it never gives,
+a name it never fixes, a decision it leaves open, an import path you had to infer, a command you had
+to invent — stop: THAT is the finding**, and it is the entire point of the exercise. This run tests
+whether step 1 is buildable from the text, not whether you can build it. Send it back to the writer
+naming exactly what you had to supply.
+
+Two outcomes both count as a pass: the gates pass on what the blueprint told you to write; or step 1
+is genuinely a no-op on top of Bootstrap (it only configures something Bootstrap already made) and
+its `Verify` passes as written — say so in one line and move on.
+
+### Run 4 — run the entry point, do not merely build it
+
+**If this project produces an executable, a published entry point, a container image or a served
+endpoint, something in this step has to RUN it.** Building proves the compiler was happy. Running
+proves the output landed where the manifest says it lands, that the runtime can find it, that the
+permission bit and the interpreter line are right, and that the two blueprint-authored files agree.
+
+Find **the earliest §9 step that produces such an artifact** — blueprint-template §9 rule 13 requires
+that step's own `Verify` to run it, so it should be step 1 or 2. Then:
+
+| Artifact | What run 4 is |
+|---|---|
+| Binary / CLI | invoke it — `--version`, `--help` — assert **exit 0** and the documented output |
+| Published entry point / library | import or require it through its declared entry field, assert it loads |
+| Served endpoint | start it, request the documented path, assert the documented status |
+| Container image | `docker run --rm <image> --version`, assert exit 0 |
+
+Three situations, one verdict each:
+
+| Situation | What to do |
+|---|---|
+| The producing step is step 1 or 2 | Implement it the way run 3 implements step 1 — literal blueprint content only — then run the artifact. Usually run 3 already produced it and run 4 is one command |
+| The first runnable artifact appears **later than step 2** | That is itself a finding (validator #31 — the blueprint did not pull it forward). Record it. Then do the check statically rather than implementing five steps: take the literal output path from the build config emitted in §19.6, the literal entry path from the manifest, and **every** §9 `Verify` and §20.1 command naming either, and compare them character for character. A mismatch is validator finding #30 and blocks — it is precisely the `dist/cli.js` vs `dist/cli/index.js` defect, caught at generation instead of at step 8 |
+| Nothing this build produces is ever run or imported by anything | Rare, and say so in one line. A library still has a published entry point; a site still serves a page. Before writing this, check §9 and §20.1 for a command that executes an output — if one exists, run 4 has a target after all |
+
+The comparison rule from run 3 applies here too: **if you have to type a path the blueprint does not
+contain in order to find the artifact, that is the finding.** The builder will not know to type it
+either.
+
+### Run 6 — the mandated formatter/linter, over the tree, with the bundle in it
+
+This is the half of validator Sweep 12 handed to you by name, because the validator has no shell and
+cannot run a formatter. Run **the check command the blueprint itself mandates** — `<formatter> check
+.`, `<linter> .` — from the scratch project root, over the tree that run 0 put the bundle into and
+run 1 copied `workspace/` out of.
+
+Two distinct defects come out of one command:
+
+- **The emitted files do not pass the project's own gates** (validator finding #22) — a live run
+  caught two real mismatches here that no amount of reading had found.
+- **The bundle is part of the tool surface** (validator finding #32) — the tool walks the tree, finds
+  a second root config under `blueprints/<slug>/workspace/`, and exits 1 before checking a single
+  file. Neither config is wrong; the defect is that both exist and nothing excluded the bundle path.
+  This is the failure that killed build test 3's Bootstrap.
+
+If §9 step 1 or §20.1 already runs that command, runs 3 and 4 covered this for free — read their
+output rather than running it twice. Either way, **do not reformat the file or add the exclude line
+yourself**: both route to *On failure* like every other finding.
+
+### Finding the data-layer command (run 5)
 
 Walk §9 from step 1 and take the **earliest** `Verify` command that does any of these. Do not take
 the first one that merely mentions the database in prose — take the first one that *executes* against it:
@@ -391,29 +513,30 @@ you find yourself typing a command the blueprint does not contain in order to ma
 export, a `cd`, a flag, a wait — **stop: that is the finding.** The builder will not know to type it
 either. Send it back to the writer rather than typing it yourself.
 
-That last rule is the whole value of run 3. Every defect the last two build tests hit had this exact
-signature: a step that runs only if you already know the one thing the blueprint never says.
+That last rule is the whole value of run 5 — and of runs 3 and 4, which apply it in their own words.
+Every defect the last four build tests hit had this exact signature: a step that runs only if you
+already know the one thing the blueprint never says.
 
-**A data layer that needs no service is a CLEAN PASS of run 3, not a blocked one.** Plenty of correct
+**A data layer that needs no service is a CLEAN PASS of run 5, not a blocked one.** Plenty of correct
 architectures store state without anything to start: an embedded or in-process database, a
 single-file store, an append-only log, a content-addressed cache, an index built from files on disk.
-For those, run 3 is *easier*, not skipped — the earliest `Verify` that applies schema, writes or
+For those, run 5 is *easier*, not skipped — the earliest `Verify` that applies schema, writes or
 clears data, or runs a test importing the storage module still exists, and you still run it and its
 prerequisites in §9's order. It passes or it fails on the blueprint's merits, exactly like any other.
-This has been executed for real: a live run took run 3 against an embedded database, with no service
-anywhere in the stack, and passed fully.
+This has been executed for real: a live run took this run against an embedded database, with no
+service anywhere in the stack, and passed fully.
 
 So do not reach for the "not smoke-tested past the toolchain" note because the stack has no container
 in it. That note is for a data layer you **could not reach**, never for one that had nothing to
-start. A blueprint whose store is in-process and whose run 3 passed is **smoke-tested**, full stop,
+start. A blueprint whose store is in-process and whose run 5 passed is **smoke-tested**, full stop,
 and reporting it any weaker under-sells a build that was verified end to end.
 
 Three situations that look adjacent, one verdict each:
 
-| Situation | Run 3 verdict |
+| Situation | Run 5 verdict |
 |---|---|
-| The store is embedded/in-process/file-based, and its first `Verify` ran | **Clean pass.** Report it as `bootstrap, step 1 and <command> verified` |
-| The data layer is genuinely serviceless *and* there is no schema, no write, no seed and no test that touches storage anywhere in §9 | Say so in one line — run 3 has no target, and that is a finding about §9, not about this machine. A blueprint with a data model and no gate that exercises it goes back to the writer |
+| The store is embedded/in-process/file-based, and its first `Verify` ran | **Clean pass.** Report it as `bootstrap ×2, step 1, <entry-point command> and <data-layer command> verified` |
+| The data layer is genuinely serviceless *and* there is no schema, no write, no seed and no test that touches storage anywhere in §9 | Say so in one line — run 5 has no target, and that is a finding about §9, not about this machine. A blueprint with a data model and no gate that exercises it goes back to the writer |
 | A service *is* required and this machine cannot start it | The environmental case below |
 
 Rules for the run:
@@ -421,6 +544,7 @@ Rules for the run:
 | Rule | Why |
 |---|---|
 | Scratch directory, deleted when the step ends | The user's cwd is not a test fixture, and a half-scaffolded project left behind is worse than no test |
+| One scratch directory for runs 0 through 6, in that order | Runs 2, 4 and 6 test what the *previous* runs left behind. A fresh directory per run tests nothing they exist for |
 | Non-interactive only — never answer a prompt by hand | A command needing a human here needs one during an unattended build too. The prompt *is* the defect |
 | Cap each command; kill anything still running after ~5 minutes | A hang is indistinguishable from slow work, and this step must not blow past the time range you gave before Step 1 |
 | Never run a command that writes outside the scratch directory or touches a live account | A blueprint's bootstrap can create real cloud resources — read it before you run it, and skip those commands under the partial-run rule below |
@@ -434,17 +558,30 @@ patch the blueprint to match what happened to work, and do not soften the step s
 
 1. Send `blueprint-writer` the failing command verbatim, its exit code, and the last ~20 lines of its
    output. That output is the specification for the fix — a real error message beats any guess.
-2. Take back the corrected blueprint, **re-run Step 5**, then re-run this step from a fresh scratch
-   directory. A fix that was not re-validated is not a fix.
+2. Take back the corrected blueprint, **re-run Step 5**, then re-run this step **from run 0** in a
+   fresh scratch directory. A fix that was not re-validated is not a fix, and a run that starts at
+   run 3 is not this step.
 3. **Three failures on the same command → stop and ask the user.** Same rule as Step 5, same reason:
    at three, it is a stack problem wearing a command's clothes, and the honest move is to say so.
+
+**A missing instruction is a failure, even when nothing exited non-zero.** Runs 3 and 4 fail by
+*needing something the blueprint does not contain* — a file body, a name, an inferred import path, a
+command you had to invent. Report those with the same weight as a non-zero exit: name exactly what
+you had to supply, and let the writer put it in the blueprint. That is the defect a builder hits at
+step 1, and it has no error message attached.
 
 ### When it genuinely cannot run
 
 Some bootstraps cannot execute here: no network, a toolchain this machine does not have, a paid
-credential the user has not created yet, a command that would provision real infrastructure. Run 3
+credential the user has not created yet, a command that would provision real infrastructure. Run 5
 adds its own: **a data layer whose service this machine cannot start — no container runtime for the
-local database, or a managed data service that needs the user's own credentials.**
+local database, or a managed data service that needs the user's own credentials.** Run 4 can hit the
+same wall when the artifact is a container image and there is no container runtime — report that the
+same way, naming the entry-point command you could not run.
+
+**Runs 0, 2 and 3 have no environmental excuse.** Placing a directory, executing a block a second
+time, and typing what the blueprint literally says all work on any machine that got through run 1. If
+one of them did not happen, it was skipped, and Step 8 says **not smoke-tested** — not a partial pass.
 
 Read that blocker as *a service is required and unavailable*. A stack whose data layer needs no
 service at all is the clean-pass case above and never lands here — an in-process store is a design
@@ -461,28 +598,31 @@ unverified one. Then:
 - Never skip because the run looks slow, or because Step 5 passed. Step 5 passing is not evidence
   about this step; they check different things.
 
-**When runs 1 and 2 pass and run 3 cannot execute, you say so in those words.** The blueprint is
+**When runs 0–4 pass and run 5 cannot execute, you say so in those words.** The blueprint is
 **smoke-tested through the toolchain only, not past it** — not "smoke-tested". Name the data-layer
 command you could not run and the environmental reason, and carry that exact wording into Step 8:
 
-> "Bootstrap and step 1 verified. **Not smoke-tested past the toolchain** — step 3's
-> `pnpm db:migrate` needs a container runtime this machine does not have, so the data layer is
-> unproven."
+> "Bootstrap verified twice, step 1 and `cli --version` verified. **Not smoke-tested past the
+> toolchain** — step 3's `pnpm db:migrate` needs a container runtime this machine does not have, so
+> the data layer is unproven."
 
 The distinction is the whole point of this revision. A blueprint whose toolchain runs and whose data
-layer was never touched is exactly the artifact both failed build tests produced, and reporting it as
+layer was never touched is exactly the artifact two failed build tests produced, and reporting it as
 "smoke-tested" is what let it reach a builder twice. **Only an environmental blocker earns this
 note** — a required service you cannot start, no credentials, no network. Two things are never
 environmental blockers: a command that fails because the blueprint is wrong (that is *On failure*, and
 it goes back to the writer), and a data layer that needs no service in the first place (that is a
 clean pass — run it, and report it as verified).
 
-*Done when:* the §10 Bootstrap block, step 1's `Verify` commands, **the first data-layer `Verify`
-command with its prerequisites**, and the mandated formatter check over the copied `workspace/` tree
-have each been executed in a scratch directory and either **all
-exited as the blueprint says they should**, or the exact unexecuted commands, their environmental
-reason, and — if run 3 was among them — the words **not smoke-tested past the toolchain** are written
-down for Step 8's handoff. The services are torn down and the scratch directory deleted either way.
+*Done when:* runs 0 through 6 have each been executed in one scratch directory, in order — the bundle
+placed at `blueprints/<slug>/` before anything ran, **§10's Bootstrap block executed twice with the
+second run exiting 0**, step 1 implemented from the blueprint's own content and its `Verify` block
+passed, **the artifact the earliest producing step produces actually run and exited 0**, the first
+data-layer `Verify` and its prerequisites passed, and the mandated formatter/linter check passed over
+the tree with the bundle in it — and either **all exited as the blueprint says they should**, or the
+exact unexecuted commands, their environmental reason, and — if run 5 was among them — the words
+**not smoke-tested past the toolchain** are written down for Step 8's handoff. The services are torn
+down and the scratch directory deleted either way.
 
 ---
 
@@ -538,8 +678,8 @@ Short summary. Do not restate the architecture — the user just approved it.
 
    | What happened | The line to write |
    |---|---|
-   | Bootstrap, step 1, and the first data-layer verify all ran — **including every stack whose store needs no service to start** | "bootstrap, step 1 and `<the data-layer command>` verified in a scratch directory" |
-   | Runs 1 and 2 ran, run 3 blocked environmentally — a **required service** could not be started here | **"not smoke-tested past the toolchain"** — name the data-layer command and the reason |
+   | Runs 0–6 all ran — bootstrap twice, step 1, the entry point, the data layer, the format check — **including every stack whose store needs no service to start** | "bootstrap verified twice, step 1, `<the entry-point command>` and `<the data-layer command>` verified in a scratch directory with the bundle in place" |
+   | Runs 0–4 ran, run 5 blocked environmentally — a **required service** could not be started here | **"not smoke-tested past the toolchain"** — name the data-layer command and the reason |
    | Blocked before that, or skipped | **"not smoke-tested"** — name what was not run and why |
 
    Never omit this line; a silent omission reads as a pass. And never write plain "smoke-tested" when
@@ -594,7 +734,7 @@ do its job in the main thread, say so in one line, and keep going.**
 |---|---|---|
 | `stack-researcher` (Step 1) | Hit the registries directly with `WebFetch`/`WebSearch`, or `npm view <pkg> version` and its ecosystem equivalents | Every pin still carries source and check date; an unresolvable pin is still written `UNVERIFIED`, never guessed from memory |
 | `blueprint-writer` (Step 4) | Compose and write the Step 3 tree yourself, reading `templates/blueprint-template.md` section by section | All 20 sections filled, §19.6 emitted with real file bodies, `Blocking gaps: none` still true before you validate |
-| `blueprint-validator` (Step 5) | Run the sweeps yourself against `agents/blueprint-validator.md`, as written | Every sweep, in order — most of all Sweep 10 and Sweeps 15–19. Self-auditing is weaker than an adversarial read, so slow down rather than skipping |
+| `blueprint-validator` (Step 5) | Run the sweeps yourself against `agents/blueprint-validator.md`, as written | Every sweep, in order — most of all Sweep 10 and Sweeps 15–23. Self-auditing is weaker than an adversarial read, so slow down rather than skipping |
 
 Three rules on the fallback:
 
@@ -623,7 +763,11 @@ a compaction mid-composition is the real risk here, not the missing agent.
 | Subagent stalls or invents an answer | It hit a decision it could not make | You left ambiguity in the brief — resolve in main thread, re-dispatch |
 | Step 1 of the build dies on a scaffolding prompt or an ignored flag | The bootstrap block was written from docs, never executed | Step 6 exists to catch exactly this — run it; a doc is not evidence |
 | First gate fails with `No test files found` or `Cannot find module` | A verify-critical config was drawn in §3 but never emitted in §19.6 | Send it back to the writer with the missing paths — see Step 4's brief and Step 7's tree check |
-| Step 1 passes, then the build dies at the first database step | Step 6 stopped at the toolchain; the data layer was never executed | Run 3 of Step 6 exists for this — run it, or report **not smoke-tested past the toolchain** |
+| Step 1 passes, then the build dies at the first database step | Step 6 stopped at the toolchain; the data layer was never executed | Run 5 of Step 6 exists for this — run it, or report **not smoke-tested past the toolchain** |
+| Seven steps of green gates, then the packaging step cannot find the binary | Two emitted files disagree about where the artifact lands, and nothing ran it until then | Run 4 of Step 6 — run the entry point at the earliest step that produces it. Validator findings #30 and #31 |
+| Bootstrap's last line exits 1 with a duplicate-config or two-roots error | The bundle's `workspace/` is a second root config inside the project tree, and no emitted config excludes `blueprints/` | Runs 0 and 6 of Step 6 reproduce it — validator finding #32. Never smoke-test in a tree without the bundle |
+| The builder re-runs Bootstrap to recover and the block aborts at the copy | A no-clobber guard exits non-zero when it correctly skips — `cp -Rn` on BSD/macOS | Run 2 of Step 6 — validator finding #33. The second run must exit 0 |
+| Run 3 "fails" because step 1's files do not exist | Bootstrap never does step 1's work; the run was read as Verify-only | Implement step 1's deliverables from the blueprint's literal content first, then gate. Anything the blueprint does not state is the finding |
 | Every server-side test dies at import, in a config that exists | The emitted runner config does not handle a package the blueprint mandates on every server module | Validator finding #25 — the config must name the package or its resolution mechanism in its own bytes |
 | A migration or seed command exits 1 having created nothing | The tool reads an env var and nothing in the blueprint loads the env file for it | Validator finding #26 — the loading mechanism belongs in the command itself |
 | A verify command greps for a count and gets a different one on every machine | A derived number was written from impression, not counted | Validator finding #27 — assert the named entities, not the cardinality |

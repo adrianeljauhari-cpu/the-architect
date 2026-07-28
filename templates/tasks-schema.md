@@ -57,7 +57,8 @@ A JSON array of task objects. No wrapper, no metadata envelope — the array *is
 | `dependencies` | string[] | yes | Task ids that must be `done` first. `[]` for roots. **This is what makes it a DAG.** May cross epics. |
 | `priority` | string | yes | `p0` blocks a usable build · `p1` needed for launch · `p2` deferrable. **Metadata only — it does not select the next task.** See "Selection". |
 | `acceptance` | string[] | yes | 1–6 EARS criteria. **WHEN** `<trigger>` **THE SYSTEM SHALL** `<observable response>`. Each one must be decidable by a script, on this machine, during the build. |
-| `verify` | string[] | yes | **An ARRAY of shell commands — always, even when there is one.** Each is run from the target project root and must exit non-zero on failure. |
+| `verify` | string[] | yes | **An ARRAY of shell commands — always, even when there is one.** Each is run from the target project root, **exits 0 when the task is correct**, and exits non-zero on failure. |
+| `checkpoint` | string | yes | The version-control tag this task's commit carries: `step-{NN}-{slug}`, the **same tag** the corresponding `blueprint.md` §9 step carries. `NN` is the global two-digit step number, not the per-epic task number. This is the rollback target. |
 | `files` | string[] | yes | Paths this task creates or edits. Globs allowed. Doubles as the parallel-safety check. |
 | `status` | string | yes | `pending` · `in_progress` · `done`. Every task starts `pending`. |
 
@@ -89,6 +90,15 @@ a build gate.
 Also banned: a criterion the blueprint already satisfies before any code is written ("the stack is
 documented"). That gates nothing.
 
+**Write every `acceptance` string so it stands alone — this is the only place it is authored.** The
+string is copied *verbatim* into the epic's task block, and the epic must be completable without
+opening `blueprint.md`. A criterion whose meaning depends on a section the epic reader will not open
+("…SHALL match the envelope in §5") is therefore unusable there, and because the two copies must be
+byte-identical, it cannot be fixed on the epic side either. Fix it here: state the contract in the
+criterion, and keep the section pointer as a parenthetical if it is useful — "WHEN a handler throws
+THE SYSTEM SHALL return `{ error: { code, message } }` with `code` from the enumerated set (§5)."
+`templates/epic-template.md`, *Self-contained vs. verbatim*, is the full rule.
+
 **`verify` is an ARRAY of commands — every one of them runs, and every one must pass.** A consumer
 that treats it as a single string silently runs only the first check and marks the task done on a
 partial pass. Write `"verify": ["pnpm typecheck"]` for one command, never `"verify": "pnpm
@@ -104,6 +114,41 @@ so and stop rather than executing commands in the wrong directory and reporting 
 command. `check that login works` is not. If a criterion genuinely cannot be checked by a command
 (visual layout, copy tone), say so explicitly: `# manual: compare against epics/04-ui.md §Header`.
 One escape hatch per epic, maximum — and it never gates a task, it only annotates one.
+
+**Every `verify` command EXITS 0 when the task is correct — the converse of "non-zero on failure",
+and the half that gets dropped.** The resume protocol reads exit status and nothing else: step 2 and
+step 8 both decide `done` vs. not-done purely from it. No consumer reads your comment, and none can
+tell "the tool errored" from "the tool correctly errored". So a command that gates a **documented
+error path** — a non-zero exit code that is the *right* answer — must be wrapped so that the line
+itself exits 0, with the expected code still visible:
+
+| Silently fails the gate forever | Correct — the line itself exits 0 |
+|---|---|
+| `"mytool --bad-flag"` | `"mytool --bad-flag; test $? -eq 2"` |
+| `"mytool query no-such-tag"` | `"mytool query no-such-tag; test $? -eq 1"` |
+| `"grep -q FIXME out.txt"` (expecting no match) | `"! grep -q FIXME out.txt"` |
+| `"curl -f localhost:3000/missing"` (expecting 404) | `"test \"$(curl -s -o /dev/null -w '%{http_code}' localhost:3000/missing)\" = 404"` |
+
+Read every `verify` array top to bottom and ask, for a *correct* task, what status each line exits
+with. Any line whose success case is a non-zero exit is a permanently red gate, and the builder's
+only escape is to edit the command — which the resume protocol forbids. **The same wrapped string is
+what gets copied into the epic's `Verify` block**, so the wrapping survives rendering rather than
+being re-derived there.
+
+**`checkpoint` is the rollback target, and it is required on every task.** One commit per task, one
+tag per task. The tag is what `blueprint.md` §20.1's final gate counts (`git tag -l 'step-*'` lists
+one per step), and it is what a bad task is undone with — `git reset --hard` to the *previous* task's
+tag, never a debug-forward through broken work.
+
+It is a field rather than a line of prose in the epic preamble for one reason: **a bundle-mode
+builder resumes from `tasks.json` and is told the epic file is self-contained.** A requirement that
+lives only in `blueprint.md` is therefore a requirement that builder never reads. It commits without
+tagging, nobody notices, and §20.1 fails at the very end of the build with every rollback target
+already gone. Put it where the builder actually looks: here, and in the epic's task block.
+
+Write the tag `blueprint.md` §9's corresponding step already carries — do not invent a parallel
+scheme, or §20.1's count and §9's rollback instructions stop agreeing. Adapt the two commands to
+whatever VCS §9 uses; the obligation is the same.
 
 **`files` is how two agents avoid colliding.** Two ready tasks may run concurrently only if their
 `files` arrays do not intersect. Be honest about shared files — listing `src/db/schema.ts` on four
@@ -195,11 +240,13 @@ on E1-T2, so they are two independent branches that can run at the same time.
 real epic carries 5–9. Read the *shape* off it — field types, array-not-string, path closure,
 branch structure — and never a count. `blueprint.md` §9's counting rule owns every number.
 
-Four things to read off it: the array is already in build order, so no consumer sorts it; every
+Five things to read off it: the array is already in build order, so no consumer sorts it; every
 `verify` is an array even where it holds one command; every `acceptance` string names something a
-command in that task's own `verify` array actually decides; and **every test file any `verify`
+command in that task's own `verify` array actually decides; **every test file any `verify`
 command runs appears in that task's `files`** — writing the test is part of the task, so the paths
-close over each other with nothing left to invent.
+close over each other with nothing left to invent; and **every task carries a `checkpoint` tag**,
+numbered by global step rather than by task id, which is the rollback target and the thing §20.1
+counts at the end of the build.
 
 ```json
 [
@@ -220,6 +267,7 @@ close over each other with nothing left to invent.
       "pnpm build",
       "pnpm test tests/smoke/boot.test.ts"
     ],
+    "checkpoint": "step-01-scaffold",
     "files": ["package.json", "tsconfig.json", ".nvmrc", "src/app/page.tsx", "tests/smoke/boot.test.ts"],
     "status": "done"
   },
@@ -238,6 +286,7 @@ close over each other with nothing left to invent.
       "pnpm db:migrate",
       "pnpm test tests/db/client.test.ts"
     ],
+    "checkpoint": "step-02-db-client",
     "files": ["src/db/schema.ts", "src/db/client.ts", "src/lib/env.ts", "migrations/**", "tests/db/client.test.ts"],
     "status": "in_progress"
   },
@@ -256,6 +305,7 @@ close over each other with nothing left to invent.
       "pnpm test tests/auth/session.test.ts",
       "pnpm test:e2e tests/e2e/sign-in.spec.ts"
     ],
+    "checkpoint": "step-03-sign-in",
     "files": ["src/lib/auth.ts", "src/app/(auth)/sign-in/page.tsx", "src/app/api/auth/[...all]/route.ts", "tests/auth/session.test.ts", "tests/e2e/sign-in.spec.ts"],
     "status": "pending"
   },
@@ -270,6 +320,7 @@ close over each other with nothing left to invent.
       "WHEN a `member` calls an owner-only action THE SYSTEM SHALL return a 403 typed error and write no rows."
     ],
     "verify": ["pnpm test tests/auth/rbac.test.ts"],
+    "checkpoint": "step-04-org-roles",
     "files": ["src/server/organizations.ts", "src/lib/permissions.ts", "src/db/schema.ts", "tests/auth/rbac.test.ts"],
     "status": "pending"
   },
@@ -284,6 +335,7 @@ close over each other with nothing left to invent.
       "WHEN the plan catalog is imported THE SYSTEM SHALL expose price ids from env, never hardcoded."
     ],
     "verify": ["pnpm db:migrate", "pnpm test tests/billing/plans.test.ts"],
+    "checkpoint": "step-05-billing-schema",
     "files": ["src/db/schema.ts", "src/server/billing/plans.ts", "tests/billing/plans.test.ts"],
     "status": "pending"
   },
@@ -302,6 +354,7 @@ close over each other with nothing left to invent.
       "pnpm test tests/billing/webhook.test.ts",
       "pnpm test tests/billing/webhook-replay.test.ts"
     ],
+    "checkpoint": "step-06-checkout-webhook",
     "files": ["src/app/api/webhooks/stripe/route.ts", "src/server/billing/sync.ts", "tests/billing/webhook.test.ts", "tests/billing/webhook-replay.test.ts"],
     "status": "pending"
   },
@@ -316,6 +369,7 @@ close over each other with nothing left to invent.
       "WHEN the viewport is under 768px THE SYSTEM SHALL collapse navigation into a drawer with no horizontal scroll."
     ],
     "verify": ["pnpm test:e2e tests/e2e/dashboard-shell.spec.ts"],
+    "checkpoint": "step-07-dashboard-shell",
     "files": ["src/app/(app)/layout.tsx", "src/components/nav/sidebar.tsx", "tests/e2e/dashboard-shell.spec.ts"],
     "status": "pending"
   }
@@ -409,8 +463,20 @@ The builder runs this at the start of every session. It is the whole reason the 
    The task is done only when the last one exits 0. A failing verify is never a reason to edit the
    verify command.
 
-9. **Set `done`, write the file, commit.** One commit per task, message prefixed with the id:
-   `E2-T1: add email + OAuth sign-in`.
+9. **Set `done`, write the file, commit, and tag the checkpoint.** One commit per task, message
+   prefixed with the id, then the task's `checkpoint` tag — both, every time:
+
+   ```bash
+   git add -A && git commit -m "E2-T1: add email + OAuth sign-in"
+   git tag step-03-sign-in          # the task's `checkpoint` value, verbatim
+   ```
+
+   **The tag is not optional and it is not deferrable.** It is this task's rollback target, and
+   `blueprint.md` §20.1's final gate counts one tag per step at the end of the build. Skipping it
+   costs nothing now and fails the build's last gate with every rollback target already gone —
+   by then the only fix is to re-tag from memory, which is not a rollback target, it is a guess.
+   If the task has no `checkpoint` field, stop and report: the bundle is malformed, and inventing a
+   tag scheme here guarantees it disagrees with §20.1's.
 
 10. **Return to step 3.** Do not compact or summarize between tasks — re-read `tasks.json`, which is
     cheap and always current.
@@ -447,9 +513,19 @@ Before emitting `tasks.json`:
 - [ ] Every `acceptance` string is in EARS form, observable, and **decidable by a script on this
       machine during the build** — nothing waiting on a human, a store queue, a certificate
       authority, or a physical device.
+- [ ] **Every `acceptance` string is self-contained.** It carries the contract it asserts rather than
+      pointing at a `blueprint.md` section for it, because the epic copies it verbatim and the epic
+      reader never opens `blueprint.md`. A bare `§N` reference with no contract beside it is a defect
+      here, not in the epic.
 - [ ] Nothing that needs an external party is a task. It is in `blueprint.md`'s post-build launch
       checklist instead.
 - [ ] `verify` is a JSON **array** on every task, including single-command ones. Zero string values.
+- [ ] **Every `verify` command exits 0 when the task is correct.** Read each line and ask what status
+      a *correct* task produces. Any command whose success case is a non-zero exit — a documented
+      error code, an expected `grep` miss, an expected 404 — is wrapped so the line itself exits 0.
+- [ ] **Every task has a `checkpoint`**, its value matches the tag on the corresponding `blueprint.md`
+      §9 step, and the tags are unique across the file. Zero tasks without one — the epic task block
+      renders this field, and a task missing it ships a step with no rollback target.
 - [ ] Every `verify` command is runnable **from the target project root** using only commands
       defined in the emitted `workspace/CLAUDE.md`.
 - [ ] **Every path named in every `verify` command is authored somewhere** — this task's `files`, an
