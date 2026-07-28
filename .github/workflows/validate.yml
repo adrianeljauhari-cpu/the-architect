@@ -1,0 +1,98 @@
+# Guardrails for the v2 architecture. Deliberately small: three greps and a manifest check,
+# no third-party actions, nothing to keep up to date.
+name: validate
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      SURFACE: knowledge commands agents skills questions templates CLAUDE.md README.md
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Plugin and marketplace manifests
+        run: |
+          CLI="npx -y @anthropic-ai/claude-code@latest"
+          if $CLI --version >/dev/null 2>&1; then $CLI plugin validate .
+          else echo "::notice::Claude Code CLI unavailable — manifest validation skipped."; fi
+
+      - name: Version pins live only in runtime-tracks
+        run: |
+          # Scans ALL of knowledge/ except runtime-tracks/ — the one directory where pins are legal.
+          # Scanning only shapes/ and capabilities/ is how a pinned stack table survived in
+          # knowledge/stack-compatibility.md through a whole release audit.
+          LIB='next\.js|nextjs|react native|react|tailwind|vite|vitest|node\.js|node|pnpm|yarn|bun'
+          LIB="$LIB"'|deno|biome|eslint|prettier|drizzle|prisma|astro|expo sdk|expo|typescript'
+          LIB="$LIB"'|python|ruby|django|fastapi|rails|laravel|php|sveltekit|svelte|vue|nuxt'
+          LIB="$LIB"'|angular|electron|java|tauri|flutter|swiftui|kotlin|dotnet|rust|cargo'
+          LIB="$LIB"'|postgres|redis|sqlite|tanstack|trpc|zod|hono|clerk|shadcn/ui|shadcn|zustand'
+          LIB="$LIB"'|sqlalchemy|alembic|pydantic|celery|htmx|remix|qwik|playwright|jest|webpack'
+          LIB="$LIB"'|rollup|esbuild|turbopack|graphql|apollo'
+          # Connector words, so "TypeScript to 6.9.2" and "pin Tailwind at v4" are caught too and not
+          # just the adjacent form. Kept to a closed list: a wildcard gap matches "React handles 3
+          # surfaces" and every other sentence with a number in it.
+          JOIN='to|at|from|version|v|sdk|release|track|line|pin|pinned|requires|needs'
+          ADJ="\b(${LIB})[[:space:]@_/-]*v?[0-9]"
+          GAP1="\b(${LIB})[[:space:]]+(${JOIN})[[:space:]]+v?[0-9]"
+          GAP2="\b(${LIB})[[:space:]]+(${JOIN})[[:space:]]+(${JOIN})[[:space:]]+v?[0-9]"
+          BARE='\bgo(lang)?[[:space:]@_-]*v?1\.[0-9]|@[0-9]+\.[0-9]+|(^|[^[:alnum:]])[~^][0-9]+\.[0-9]+'
+          # knowledge/skills-registry.md is exempt for the same reason it is exempt below: it
+          # documents OTHER projects' prerequisites ("uses uv + Python 3.12"), which are that
+          # project's facts to maintain, not a pin in a stack The Architect emits.
+          HITS=$(grep -rniE "(${ADJ})|(${GAP1})|(${GAP2})|${BARE}" \
+                   --exclude-dir=runtime-tracks knowledge/ \
+                 | grep -vE '^knowledge/skills-registry\.md:' || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::A library version appears above, outside knowledge/runtime-tracks/." \
+                 "Shapes say WHAT IT IS, capabilities say WHAT IT DOES, and stack-compatibility.md" \
+                 "states combinations as ROLES — none of them may pin a version, because then" \
+                 "refreshing one library means editing 32 files. That is the exact rot v2 fixed." \
+                 "Move the pin into knowledge/runtime-tracks/ and link to that file instead." \
+                 "Standards (WCAG 2.2, Section 508, SOC 2, Manifest V3, OAuth 2.1, HTTP codes)," \
+                 "CSS values, tier labels and ISO dates are allowed and do not match — if one did," \
+                 "tighten the pattern in this workflow, not the file."
+            exit 1
+          fi
+
+      - name: No skill names that were removed in v1.0.0
+        run: |
+          # Matches the bare form as well as the slash form. Half of these were never slash commands
+          # in the first place, so "use shadcn-ui" with no slash is the likelier way one survives.
+          # The leading class also stops github.com/x/deep-research-thing from matching.
+          REMOVED='deep-research|seo-audit|pdf-design|shadcn-ui|chrome-bridge-automation|web-reader|humanizer'
+          HITS=$(grep -rnE "(^|[^A-Za-z0-9._/-])/?(${REMOVED})\b" $SURFACE \
+                 | grep -vE '^(knowledge/skills-registry|agents/blueprint-validator)\.md:' || true)
+          if [ -n "$HITS" ]; then
+            echo "$HITS"
+            echo "::error::This skill was removed in v1.0.0 — it points at nothing, so a blueprint" \
+                 "that names it silently skips the step. Check knowledge/skills-registry.md §4 for" \
+                 "the replacement and copy its exact invocation form. A leading slash means a real" \
+                 "slash command; no slash means the skill auto-activates and adding one is a no-op." \
+                 "Only skills-registry.md and blueprint-validator.md may name these, as denylists."
+            exit 1
+          fi
+
+      - name: Every cross-reference resolves
+        run: |
+          # All six real roots, not just knowledge/. Checking one root is how three dead fallback
+          # filenames survived: a broken templates/ or agents/ path is exactly as fatal as a broken
+          # knowledge/ one. The sed drops .claude/... tokens first — those describe the GENERATED
+          # project's workspace, which does not exist in this repo.
+          MISSING=$(find $SURFACE -type f -print0 \
+                    | xargs -0 sed -E 's#\.claude/[^ )`"]*##g' \
+                    | grep -oE '\b(knowledge|templates|questions|commands|agents|skills)/[A-Za-z0-9_./-]+\.md' \
+                    | sort -u | while read -r f; do [ -f "$f" ] || echo "  $f"; done)
+          if [ -n "$MISSING" ]; then
+            echo "$MISSING"
+            echo "::error::These files are referenced but do not exist. A blueprint is only" \
+                 "self-contained if every path in it resolves — a dead link means the Architect" \
+                 "reads nothing and designs from memory. Fix the path, or add the file. Paths are" \
+                 "repo-relative in knowledge/ and CLAUDE.md, and \${CLAUDE_PLUGIN_ROOT}-prefixed in" \
+                 "commands/, agents/ and skills/; both forms are checked by the same rule."
+            exit 1
+          fi

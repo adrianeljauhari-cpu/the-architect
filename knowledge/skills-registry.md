@@ -53,7 +53,7 @@ Skills de la fase de diseño — las usa El Arquitecto durante la entrevista.
 
 Skills de la fase de construcción — se nombran en el blueprint para el Claude que construye.
 
-Every row goes into blueprint **Section 14** *with its install command*. Rule 4 promises a
+Every row goes into blueprint **Section 18** *with its install command*. Rule 8 promises a
 self-contained blueprint; naming a skill the builder cannot install breaks that promise.
 
 | Skill | Blueprint section | When to recommend | Repo | ★ · license | Install |
@@ -79,18 +79,18 @@ Degradación elegante — reglas permanentes.
    do not stop, do not interrupt the interview to ask the user to install it, and do not pretend you
    ran it. Fall back and keep moving.
 2. **Your knowledge base is the floor.** Every design-phase skill has a fallback in this repo:
-   `building-blocks/styling-systems.md` and `frontend-stacks.md` stand in for `ui-ux-pro-max`;
-   `database-patterns.md`, `auth-patterns.md`, and `deployment-patterns.md` cover their areas. Built-in
+   `capabilities/styling.md` and `frontend-architecture.md` stand in for `ui-ux-pro-max`;
+   `capabilities/database.md`, `auth.md`, and `deployment.md` cover their areas. Built-in
    `WebSearch` and `WebFetch` stand in for `/last30days` and `agent-browser`. The interview never
    degrades below what those files support.
 3. **Say what you did.** When you fall back, note it in one line where it matters — *"Stack
    comparison based on internal knowledge; `/last30days` was unavailable, so sentiment is uncited."*
    Never present a fallback as a research result.
 4. **A skill you can't run may still belong in the blueprint.** The builder's machine is not yours.
-   List it in Section 14 **with its install command** so they can install it.
+   List it in Section 18 **with its install command** so they can install it.
 5. **Never invent an install command.** If you are not certain, write *"check the repo README"*.
    A wrong install command is worse than none.
-6. **Never block generation on a missing skill.** Rule 4 requires a self-contained blueprint. A
+6. **Never block generation on a missing skill.** Rule 8 requires a self-contained blueprint. A
    missing skill degrades the *research*, never the *deliverable*.
 
 ### ES
@@ -99,17 +99,17 @@ Degradación elegante — reglas permanentes.
    no lo está: no te detengas, no interrumpas la entrevista para pedirle al usuario que la instale, y
    no finjas que la ejecutaste. Usa el respaldo y sigue.
 2. **Tu base de conocimiento es el piso.** Cada skill de diseño tiene un respaldo en este repo:
-   `building-blocks/styling-systems.md` y `frontend-stacks.md` sustituyen a `ui-ux-pro-max`;
-   `database-patterns.md`, `auth-patterns.md` y `deployment-patterns.md` cubren lo suyo. `WebSearch` y
+   `capabilities/styling.md` y `frontend-architecture.md` sustituyen a `ui-ux-pro-max`;
+   `capabilities/database.md`, `auth.md` y `deployment.md` cubren lo suyo. `WebSearch` y
    `WebFetch` sustituyen a `/last30days` y `agent-browser`. La entrevista nunca baja de ahí.
 3. **Di lo que hiciste.** Cuando uses un respaldo, anótalo en una línea donde importe — *"Comparación
    basada en conocimiento interno; `/last30days` no estaba disponible, así que el sentimiento no está
    citado."* Nunca presentes un respaldo como resultado de investigación.
 4. **Una skill que no puedes correr igual puede ir en el blueprint.** La máquina de quien construye no
-   es la tuya. Inclúyela en la Sección 14 **con su comando de instalación**.
+   es la tuya. Inclúyela en la Sección 18 **con su comando de instalación**.
 5. **Nunca inventes un comando de instalación.** Si no estás seguro, escribe *"revisa el README del
    repo"*. Un comando equivocado es peor que ninguno.
-6. **Nunca bloquees la generación por una skill ausente.** La Regla 4 exige un blueprint
+6. **Nunca bloquees la generación por una skill ausente.** La Regla 8 exige un blueprint
    autocontenido. Una skill ausente degrada la *investigación*, jamás el *entregable*.
 
 ---
@@ -128,13 +128,13 @@ Corregido y eliminado. One line each, so this is settled.
 | `/shadcn-ui` | **REPLACED** | Not a slash command; the shadcn skill is auto-activating, so `/shadcn-ui` was a silent no-op | `ui-ux-pro-max` for the design system |
 | `/humanizer` | **CORRECTED** | The tododeia skill's real invocation is `/humanizalo` — a blueprint following the old entry literally would fail | `/humanizalo` |
 | `/ui-ux-pro-max`, `/frontend-design`, `/playwright-cli` | **CORRECTED** | Slash form does not exist on Claude Code — all three auto-activate | Same skills, slash dropped |
-| *(registry had no install commands)* | **FIXED** | A blueprint that names skills the builder cannot install violates Rule 4 | Every row now carries a verified install command |
+| *(registry had no install commands)* | **FIXED** | A blueprint that names skills the builder cannot install violates Rule 8 | Every row now carries a verified install command |
 
 ---
 
 ## 5. How to include skills in a blueprint
 
-In Section 14 (Skills to Use During Build), list each relevant skill with:
+In Section 18 (Skills to Use During Build), list each relevant skill with:
 
 1. **Skill name** — in its real invocation form (slash only if it is really a slash command)
 2. **When to use** — which build step, referencing the build order

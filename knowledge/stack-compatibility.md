@@ -1,81 +1,129 @@
-# Stack Compatibility Matrix
+# Stack compatibility
 
-Use this to validate tech stack decisions. Avoid known bad combinations.
+> The cross-axis check. A shape, a runtime track, and a capability each look fine on their own —
+> this file catches the combinations that only break once you put them together.
 
-## Proven Combinations (Recommended)
+Last verified: 2026-07-27
 
-### The Modern SaaS Stack
-```
-Next.js 15 + TypeScript + Tailwind v4 + shadcn/ui + Supabase + Clerk + Stripe + Vercel
-```
-Why it works: Everything integrates seamlessly. Largest ecosystem. Most tutorials/examples.
+**No version numbers live in this file.** Every combination below is stated as a *role* — "a
+full-stack React framework", "a typed SQL-shaped ORM", "a managed Postgres with built-in auth". What
+those roles resolve to today, and at which pinned version, lives in `knowledge/runtime-tracks/`.
+Services are named directly (Supabase, Stripe, Cloudflare, Vercel) because services are not pinned.
+A rule written against a version number expires within a release; a rule written against a role does
+not.
 
-### The Lightweight SaaS Stack
-```
-Next.js 15 + TypeScript + Tailwind v4 + shadcn/ui + Supabase (Auth + DB) + Lemonsqueezy + Vercel
-```
-Why it works: Fewer services. Supabase handles auth AND database. Lemonsqueezy handles taxes.
+## How to use it
 
-### The API-First Stack
-```
-Hono + TypeScript + Drizzle + PostgreSQL (Neon) + Railway
-```
-Why it works: Lightweight, fast, SQL-close. Hono runs everywhere (Node, Bun, Cloudflare Workers).
+1. Draft the stack from the shape's default track plus the capabilities the brief needs.
+2. Read the known-bad table. A hit is a design error, not a warning — change the stack, or write down
+   in the blueprint why the conflict does not apply to this project.
+3. Record the result in the blueprint stack section: *"Checked against
+   `knowledge/stack-compatibility.md` — no known-bad combinations"*, or name the conflict and the
+   resolution.
 
-### The Content Stack
-```
-Astro 5 + TypeScript + Tailwind v4 + Sanity + Vercel
-```
-Why it works: Zero JS by default. Sanity's content lake is powerful. Fast sites.
+Verify anything load-bearing against the vendor's own docs before repeating it. Several of the most
+quoted incompatibilities in this space were fixed by the vendor years ago and survive only as
+folklore — see [Rules that expired](#rules-that-expired).
 
-### The Mobile Stack
-```
-Expo (React Native) + TypeScript + NativeWind + Supabase + EAS Build
-```
-Why it works: Expo simplifies everything. NativeWind brings Tailwind to mobile. Supabase covers backend.
+## Proven combinations
 
-### The Internal Tool Stack
-```
-Next.js 15 + TypeScript + Tailwind v4 + shadcn/ui + Prisma + PostgreSQL + Vercel
-```
-Why it works: Fast to build. shadcn/ui has all the admin components (tables, forms, dialogs).
+| Combination | Composition | Track | Why it holds |
+|---|---|---|---|
+| **Default SaaS** | full-stack React framework · utility-CSS framework + copy-in component library · managed Postgres with auth, storage and row-level policies (Supabase) · hosted identity provider (Clerk) · Stripe · Vercel | `runtime-tracks/ts-node.md` | Deepest ecosystem, one language end to end, and every piece has a first-party adapter for the others. The default until something in the brief argues otherwise. |
+| **Lean SaaS** | same frontend · platform auth *instead of* a separate identity provider · merchant-of-record billing · Vercel | `runtime-tracks/ts-node.md` | Two fewer services and two fewer webhook syncs. The MoR owns sales tax, which is worth more than it looks to a solo founder. |
+| **API-first** | portable HTTP microframework · typed SQL-shaped ORM · serverless Postgres (Neon) · container PaaS (Railway, Render, Fly) | `runtime-tracks/ts-node.md` | No UI framework tax. The microframework runs unchanged on Node, Bun, and Workers, so the host stays a reversible decision. |
+| **Content / marketing** | islands static-site framework · headless CMS (Sanity, or git-committed MDX) · CDN-first host (Cloudflare Pages, Netlify) | `runtime-tracks/ts-node.md` | Ships zero JS by default, so Core Web Vitals are a starting condition rather than a project. |
+| **Mobile + backend** | managed React Native toolchain · the toolchain's cloud build and OTA service (EAS) · hosted BaaS or your own API | `runtime-tracks/mobile-native.md` (app) + `runtime-tracks/ts-node.md` (backend) | Signing, store submission, and over-the-air updates are the hard parts, and the managed toolchain owns all three. |
+| **Internal tool** | full-stack React framework · copy-in component library · full-featured ORM · Postgres · Vercel or a container PaaS | `runtime-tracks/ts-node.md` | The copy-in library already has the table, form, and dialog primitives an admin UI is 90% made of. The heavier ORM wins here because DX beats query control on a low-traffic tool. |
+| **Data / analytics** | Python orchestration · columnar warehouse · a dashboard on the default web track | `runtime-tracks/python.md` (+ `ts-node.md` for the UI) | Transformation belongs where the numeric ecosystem is. The dashboard is a separate deliverable with a separate track — do not force one runtime across both. |
+| **Server-rendered CRUD** | batteries-included server-rendered framework · its own ORM · its own deploy tool · a long-lived VM or container | `runtime-tracks/rails-laravel.md` | Admin, auth, jobs, and mailers ship in the box. Fastest path when the product is forms over a database and the team already knows the framework. |
 
-## Known Bad Combinations (Avoid)
+## Known-bad combinations
 
-| Combination | Problem |
-|-------------|---------|
-| Tailwind + Styled Components | Conflicting paradigms. Pick one. |
-| Prisma + Cloudflare Workers | Prisma doesn't run on Workers edge runtime. Use Drizzle. |
-| NextAuth + Clerk | Both do auth. Use one. |
-| GraphQL + simple CRUD app | Over-engineering. REST or tRPC is simpler. |
-| MongoDB + relational data | If you have joins and foreign keys, use PostgreSQL. |
-| Socket.io + Vercel | Vercel is serverless. WebSockets need persistent connections. Use Supabase Realtime or Pusher. |
-| Redux + small app | Overkill. Zustand or just useState is fine. |
-| Firebase + Prisma | Firebase uses Firestore (NoSQL). Prisma is for SQL databases. |
-| Next.js + Express | Next.js has built-in API routes. Adding Express is redundant. |
-| Tailwind v3 patterns in v4 | v4 changed config format. Don't mix `tailwind.config.js` with `@theme`. |
+Each row states the conflict in terms that stay true across releases.
 
-## Compatibility Notes
+| Conflict | What actually breaks | Do instead |
+|---|---|---|
+| Utility-CSS framework **+** runtime CSS-in-JS | Two cascade and specificity models fighting over the same elements. Worse on a server-first React framework: a runtime CSS-in-JS library needs a client boundary, so every styled component silently opts out of server rendering. | Pick one. Utility CSS on the server-first track. If a design system already exists in CSS-in-JS, move it to a zero-runtime/compiled variant before porting. |
+| Two identity providers (hosted provider **+** framework auth library) | Two session cookies, two user tables, and no answer to "who is the source of truth" when they disagree. Every downstream authorization check has to pick a side. | Exactly one owns the session. Keep the second only as a federated login *into* the first. See `knowledge/capabilities/auth.md`. |
+| Long-lived process design **+** request-scoped host | A worker loop, an in-process scheduler, or an in-memory queue on a serverless host runs on your laptop and evaporates in production — no invocation, no execution. | Split the tiers: serverless web, container worker, one shared database. See `knowledge/capabilities/deployment.md`. |
+| In-memory realtime state **+** horizontally scaled host | Rooms, presence, and counters in module scope are per-instance. Reconnects land on a different instance and a deploy splits the fleet across two versions. Not a serverless problem — any multi-instance deploy has it. | External pub/sub adapter plus an external state store (Redis). Multi-node Socket.IO additionally needs either sticky sessions or a WebSocket-only transport. |
+| Raw-TCP database driver **+** a runtime without TCP sockets | Edge and Workers-style runtimes expose fetch, not sockets. The connection fails at runtime, never at build, so it ships green. | Use the platform's HTTP/WebSocket driver or the ORM's driver adapter for that runtime — and check the bundle-size ceiling while you are there. |
+| Per-request serverless connections **+** un-pooled Postgres | Connection exhaustion under the first traffic spike. The symptom looks like a slow database and is not. | Connect through a pooler; reserve a direct URL for migrations and workers. Transaction-mode poolers drop prepared statements, advisory locks, and `LISTEN`/`NOTIFY` — configure the driver for it. |
+| Document database **+** relational data | Foreign keys, joins, and multi-document invariants become application code that races. The bugs arrive as orphaned rows months later. | Postgres. Reach for a `jsonb` column when *part* of the payload is genuinely shapeless. See `knowledge/capabilities/database.md`. |
+| SQL ORM **+** an SDK-only document platform (Firestore and friends) | There is no SQL wire protocol to talk to. Nothing about the pairing works, at any version. | Use the platform SDK, or move to a SQL database if you want an ORM. |
+| Schema-first graph API **+** simple CRUD | A gateway, a schema, a resolver layer, and an N+1 batching story bolted onto six endpoints. All cost, no payoff. | REST or a typed RPC layer. Add a graph API when many clients genuinely need different shapes of the same object. |
+| A second HTTP framework inside a full-stack framework | Two routers, two middleware chains, and one deploy target that only ever invokes one of them. Auth applied in the wrong chain is silently skipped. | Use the framework's own route handlers. If you need a standalone server, make it a separate deployable with its own track. |
+| Global store library with reducer boilerplate **+** a small app | Ceremony per feature and a store that duplicates what the server cache already holds. | Server state in a query cache, local state in component state, one small global store only if something genuinely spans routes. See `knowledge/capabilities/state-management.md`. |
+| Custom native modules **+** a prebuilt generic client app | The store-distributed client can only load native code compiled into it. Adding a native dependency and reloading in the generic client fails with a confusing JS-level error. | Move to a development build the moment the first native module lands. Every native dependency also constrains the SDK upgrade path — check support before installing. See `knowledge/shapes/mobile-app.md`. |
+| Extension platform **+** a dev pipeline that emits `eval` or remote code | Extension CSP forbids remotely hosted code and eval-based module wrappers, so HMR dev builds are rejected while the production build passes. The failure appears only when loading the unpacked extension. | Build to static files and reload the extension; keep HMR for a standalone dev harness page. See `knowledge/shapes/browser-extension.md`. |
+| Admin/UI framework **+** a different major of the component runtime it is built on | The peer constraint either blocks the install or resolves to a half-working pair where some components render and some silently do not. | Upgrade both together, driven by the admin framework's supported matrix. Pins live in `knowledge/runtime-tracks/rails-laravel.md`. |
+| Two migration systems on one database | The platform's dashboard schema editor plus your ORM's migrations. State drifts, and the next migration fails in production only. | One owns the schema. The dashboard is read-only from day one. |
+| Self-hosted search engine **+** a static or edge-only host | The engine needs a persistent process and a disk. There is nowhere for it to run next to the site. | A hosted search service, or a container host alongside the site. See `knowledge/shapes/content-community-platform.md`. |
 
-### Auth + Database Pairings
-| Auth | Best DB Partner | Why |
-|------|-----------------|-----|
-| Clerk | Any (Prisma/Drizzle + any DB) | Clerk is independent — stores users separately, sync via webhooks |
-| Supabase Auth | Supabase (Postgres) | Tight integration, RLS policies, same dashboard |
-| NextAuth | Any (with adapter) | Flexible — Prisma adapter, Drizzle adapter, etc. |
-| Firebase Auth | Firestore | Same ecosystem, seamless integration |
+## Rules that expired
 
-### Hosting + Framework Pairings
-| Framework | Best Host | Why |
-|-----------|-----------|-----|
-| Next.js | Vercel | Built by same team, zero-config, edge middleware |
-| Astro | Vercel or Cloudflare Pages | Both excellent for static + SSR |
-| Hono / Express | Railway or Fly.io | Need persistent Node.js process |
-| React Native | EAS Build (Expo) | Integrated build + OTA updates |
+Retired here so nobody re-adds them from memory. Each was checked against the vendor's own docs on
+2026-07-27.
 
-### ORM + Database Pairings
-| ORM | Best Database | Notes |
-|-----|--------------|-------|
-| Prisma | PostgreSQL (Supabase/Neon) | Best DX, great migrations |
-| Drizzle | PostgreSQL or SQLite (Turso) | Performance, SQL-like, edge compatible |
-| Mongoose | MongoDB | Only ORM for MongoDB |
+| Retired rule | What is actually true | Source |
+|---|---|---|
+| "The full-featured ORM cannot run on Cloudflare Workers — use the SQL-shaped one" | It runs on Workers through driver adapters — Prisma Postgres, Neon, PlanetScale, D1, Turso, and plain Postgres with the Node-compatibility flag. The real constraints are *which driver* the runtime allows and the Workers bundle-size ceiling on the free plan, not the ORM. | `prisma.io/docs` — deploy to Cloudflare |
+| "WebSockets cannot work on a serverless host — it is serverless" | Vercel Functions serve WebSocket connections on Fluid compute; both a bare WebSocket server and Socket.IO work. The durable constraint is **state, not transport**: a connection pins to one instance, and reconnects are not guaranteed the same instance — so rooms, presence, and counters go in an external store. That constraint is in the known-bad table above, correctly scoped. | `vercel.com/docs/functions/websockets` |
+| "Previous-major config patterns inside the current major" (the utility-CSS framework) | A version-transition trap, not a cross-axis conflict — it stops being true one major later, and it is invisible to a role-based rule. It belongs in the runtime track's Gotchas, where `knowledge/runtime-tracks/ts-node.md` already documents it (JS config file vs. CSS-first config). | this repo |
+
+## Auth-to-database pairings
+
+| Auth model | Database partner | Why |
+|---|---|---|
+| Hosted identity provider (Clerk, Auth0, WorkOS) | Any — the provider is independent | Identity lives with the provider; you keep a local user row keyed by the provider's id and sync it by webhook. Never join against the provider's API in a request path. |
+| Platform auth bundled with the database (Supabase, Firebase) | That platform's own database | The session is already in the row-level policy context. Tightest integration available, and the reason to accept the platform's gravity — leaving means reimplementing authorization. |
+| Self-hosted auth library inside the app | Any database your ORM supports | You own the schema and the session table. The library's adapter must match the ORM you already picked — check that pairing before committing to either. |
+| Enterprise SSO / SCIM broker | Any | Directory sync writes into your own users and orgs tables. Design those tables to accept an external source of truth from day one. See `knowledge/capabilities/enterprise-readiness.md`. |
+
+## Hosting-to-framework pairings
+
+| Framework role | Host | Why |
+|---|---|---|
+| Full-stack React framework | Its vendor's platform (Vercel) first; a Node container when vendor coupling is unacceptable | Every framework feature ships on the vendor platform first. Self-hosting works but you re-own routing, caching, and image handling. |
+| Islands / static-site framework | CDN-first host (Cloudflare Pages, Netlify) | Static output by default. Add an SSR adapter only when a page genuinely cannot be built ahead of time. |
+| Portable HTTP microframework | Container PaaS (Railway, Render, Fly), or an edge runtime **if** the code imports no Node built-ins | Portability is the whole reason to pick this role. One Node-only import in shared handler code forfeits it. |
+| Batteries-included server-rendered framework | A long-lived VM or container, deployed by the framework's own tool | The framework assumes a persistent process, a local filesystem, and in-process background jobs. |
+| React Native app | The toolchain's cloud build and OTA service (EAS) | Credentials, signing, store submission, and staged rollout are the hard parts, and they live there. |
+| Python pipeline or worker | Container PaaS or a managed orchestrator | Long runtimes and heavy dependencies. A request-scoped host is the wrong shape entirely. |
+
+## ORM-to-database pairings
+
+| ORM role | Fits | Notes |
+|---|---|---|
+| Typed SQL-shaped ORM | Postgres, MySQL, SQLite/libSQL, D1 | Thin runtime, edge-friendly, schema file is the source of truth and migrations are diffed from it. The default on the TypeScript track. |
+| Full-featured ORM | Postgres, MySQL, SQLite — and edge runtimes via driver adapters | Generated client, mature migrations, a GUI. Heavier client, so check the bundle ceiling before putting it in an edge function. |
+| Query builder | Any SQL database | Type-safe with almost no abstraction. Bring your own migration runner — that is the trade. |
+| Document ODM | That document database only | Not portable. Choosing the ODM is choosing the database. |
+| Platform SDK | That platform only | Fine for prototypes and client-side reads. Access rules live outside your codebase and are easy to leave untested. |
+
+## Checks a script can run
+
+Each guard is decidable locally, with no network, no reviewer, and no deploy. Wire them into the
+build as a lint step; each exits non-zero on a hit.
+
+| Guard | Check |
+|---|---|
+| Two identity providers | The dependency manifest lists more than one auth SDK or auth library. |
+| Two styling paradigms | The manifest lists both a utility-CSS framework and a runtime CSS-in-JS library. |
+| Raw-TCP driver on an edge target | Resolve the import graph of the edge entrypoint; it must not reach a socket-based database driver. Static resolution only — no deploy needed. |
+| Two migration systems | The repo contains both an ORM migrations directory and checked-in platform schema exports. |
+| In-memory realtime state | The realtime handler module declares no module-scope mutable collection. |
+| Un-pooled serverless database URL | The runtime connection string resolves to the direct host rather than the pooler host; the direct URL appears only in the migration and worker configuration. |
+| Unpinned toolchain | The manifest pins a package manager and the repo carries a runtime version file. |
+
+## See also
+
+- `knowledge/runtime-tracks/ts-node.md` — what every role above resolves to, with pins and gotchas
+- `knowledge/runtime-tracks/mobile-native.md` — native module and SDK constraints behind the mobile row
+- `knowledge/runtime-tracks/rails-laravel.md` — supported majors for the admin/component-runtime pairing
+- `knowledge/capabilities/database.md` — pooling, migrations, and the ORM decision in full
+- `knowledge/capabilities/deployment.md` — host choice, background jobs, and the serverless boundary
+- `knowledge/capabilities/auth.md` — session ownership and the provider-mirror pattern
+- `knowledge/capabilities/styling.md` — the styling paradigm decision this file only rules on
+- `knowledge/shapes/saas-webapp.md` — the shape the default combination targets
