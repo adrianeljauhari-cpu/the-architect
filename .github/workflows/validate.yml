@@ -330,7 +330,12 @@ jobs:
             [ -f "$f" ] || { echo "  dangling: $f"; FAIL=1; }
           done
 
+          # One named exemption, not a loosened rule: the social preview is consumed by GitHub's
+          # repo settings (Settings -> Social preview), never by markdown, so "referenced nowhere"
+          # is true of it and still correct. Exempting the one real case keeps the check meaningful
+          # for every other asset; widening the rule to "images may be unreferenced" would not.
           for f in $(find assets -type f 2>/dev/null | sort); do
+            [ "$f" = "assets/social-preview.jpg" ] && continue
             grep -rqF "$f" $SURFACE || { echo "  orphan:   $f is committed but referenced nowhere"; FAIL=1; }
           done
 
