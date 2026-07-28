@@ -160,7 +160,7 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
     for exactly what "identical" means, because the two templates render the same criterion
     differently on purpose and a literal byte match is impossible.
 11. **Sweep your own output.** Re-read what you wrote and grep for surviving placeholders. Then run
-    the **eighteen** mechanical self-checks below before you emit anything, all of which apply in
+    the **nineteen** mechanical self-checks below before you emit anything, all of which apply in
     both emission modes:
     - **Verify parity** — every path a Verify command touches is created by a step or emitted in
       §19.6.
@@ -204,8 +204,13 @@ Anything not in that list, you do not have. Do not reconstruct it from vibes.
       config's syntax. See *A bundle inside the project is part of the tool surface*.
     - **Guards exit 0** — every command you added as a guard exits 0 on the path it guards against,
       on every platform the build targets. See *A guard must not itself fail*.
+    - **Verify/Checkpoint ordering** — no `Verify` block asserts state only its own `Checkpoint`
+      creates. Grep every Verify for `git status`, `git ls-files`, `git diff --quiet`, `git tag -l`,
+      `git show`, `porcelain`, `untracked`, `--error-unmatch`, and for each ask whether that step
+      creates any file named in it. See *A Verify may not depend on what its own Checkpoint
+      produces*.
 
-    All eighteen catch defects you must *fix*, not defects you may ship. The validator files each of
+    All nineteen catch defects you must *fix*, not defects you may ship. The validator files each of
     them, and most are BLOCKER.
 12. **Return the summary.** Path, section coverage as `n/N`, artifacts written, assumptions, gaps,
     version provenance.
@@ -317,7 +322,7 @@ Everything else in the blueprint is context. The build order is the actual instr
 | Goal | One sentence. What exists after this step that did not before. |
 | Files touched | Explicit list. **Max ~5.** More than that is two steps. |
 | Acceptance criteria | 2–6, EARS form, every one observable |
-| Verify command | A real, runnable command with an expected result |
+| Verify command | A real, runnable command with an expected result — and one that cannot depend on this step's own Checkpoint, which runs after it |
 | Depends on | Step numbers, so the order is not merely implied |
 
 **EARS form:** **WHEN** `<trigger>` **THE SYSTEM SHALL** `<observable response>`.
@@ -763,6 +768,69 @@ that must be committed* table names the literal exception line — a negation pl
 pattern it overrides (`!.env.example`), or removal of the pattern — and that line appears in the
 Bootstrap block. **Prose is not an exception.** "Make sure `.env.example` is committed" changes
 nothing about what `git add -A` does.
+
+### A Verify may not depend on what its own Checkpoint produces
+
+**Every step you write runs Do → Done when → Verify → Checkpoint, in that order, always.** So when a
+`Verify` block executes, the step's own commit has not happened yet: the files it just wrote are
+untracked, the working tree is dirty by exactly the work the step did, and its tag does not exist.
+A gate that assumes otherwise fails on a **correct** step, on every machine, and the builder has no
+legal move inside the step to satisfy it.
+
+**A real blueprint hit this twice in an otherwise complete 14-of-14 build — the only defect class
+left standing.** Step 11's Verify ran `test -z "$(git status --porcelain)"`; git printed the step's
+own untracked files and exited 1. Step 12's Verify ran `git ls-files --error-unmatch LICENSE` over
+files step 12 itself created; git answered `error: pathspec 'LICENSE' did not match any file(s)
+known to git`. One root cause, two steps: an assertion placed in the phase before the phase that
+makes it true.
+
+**State it generally, because the shape recurs beyond version control: a gate may not assert a
+post-condition of a later phase of the same step.** The family to watch for:
+
+| In the step's own `Verify` | Why it cannot pass |
+|---|---|
+| A clean working tree, in a step that authored files | The tree is dirty *because the step worked*. Clean would mean it built nothing. |
+| A file being tracked / committed / indexed, in the step that created it | Nothing is `git add`ed until the Checkpoint. |
+| A tag, release, or changelog entry existing, when the Checkpoint creates it | Created two lines later. |
+| Anything asserting "nothing uncommitted" inside a step that writes code | Same defect, different command. |
+| Reading `git show <this step's tag>:<path>` | The commit that tag names does not exist yet. |
+
+**Two legal fixes. Prefer the first.**
+
+1. **Move the assertion into the `Checkpoint` block, after the commit.** The property genuinely *is*
+   a post-commit property, and it belongs where it becomes true. The Checkpoint is a shell block like
+   any other — it may carry assertion lines after `git commit` and `git tag`, and a failure there
+   still fails the step:
+
+   ```bash
+   git add -A && git commit -m "step 12: license and versioning policy"
+   git tag step-12-licensing
+   git ls-files --error-unmatch LICENSE VERSIONING.md   # expect: exit 0 — committed one line above
+   ```
+
+2. **Restate the gate so it does not depend on commit state.** Assert the file **exists on disk**
+   rather than that git tracks it (`test -f LICENSE`); assert the **diff against the step's own
+   expected output** is empty rather than that the tree is clean; assert `! git check-ignore -q
+   <path>` rather than that the path is already indexed.
+
+**A third move is not legal: telling the builder to commit early.** The step template orders the
+Checkpoint last on purpose, so the tag points at a state the gate already verified. Do not write
+"commit first, then verify" and do not slip a `git add` into a Verify block.
+
+**And do not just delete the check.** A tracked-files assertion is worth having — it is what catches
+a forgotten `.gitignore` negation, which is the exact defect *A file you call committed must not be
+ignored* exists to prevent. It has two homes, both after the commit that makes it decidable: the
+step's own **`Checkpoint` block** (for files that step created), or **§20.1's manual gates**, which
+run once every step has committed and are the right place for the whole-repository version. Point
+the assertion at one of those; never at a step's Verify.
+
+**The self-check, mechanical.** Grep every `Verify` block you wrote — §9 blocks, `tasks.json`
+`verify` arrays, epic Verify blocks — for `git status`, `git ls-files`, `git diff --quiet`,
+`git tag -l`, `git show`, `porcelain`, `untracked`, `--error-unmatch`. For each hit, ask one
+question: **does the step it sits in create, modify, or delete any file named in that command — or
+any file at all, for the whole-tree checks?** If yes, it is misplaced: move it to the Checkpoint or
+restate it. If no — the step only reads files an earlier step committed — it is legitimate. Run the
+same grep over §20.1, where these checks *are* legal, to confirm nothing useful was lost in the move.
 
 ### The workspace copy must be idempotent
 
@@ -1216,6 +1284,17 @@ Resolve these in the main thread and re-invoke.
     GNU — under `set -e` that breaks the very "safe to run twice" property the guard was added to
     provide. Use a form that exits 0 (`rsync -a --ignore-existing`, a marker gate) or neutralise it
     explicitly with the reason in a trailing comment.
+35. **A `Verify` may not depend on what its own `Checkpoint` produces.** *(Enforced by validator finding #34.)* Steps run
+    Do → Done when → Verify → Checkpoint, always, so at Verify time the step's files are untracked,
+    the tree is dirty, and its tag does not exist. No clean-tree check in a step that authored files,
+    no `git ls-files --error-unmatch` over a file that step created, no lookup of its own tag — those
+    fail on a *correct* step. Generalise it: **no gate asserts a post-condition of a later phase of
+    the same step.** Fix it by moving the assertion into the `Checkpoint` block after the commit
+    (preferred — that is where the property becomes true), or by restating it without commit state
+    (`test -f <path>`, a diff against the step's expected output). Telling the builder to commit
+    early is not a fix; the Checkpoint is last so the tag points at a verified state. A
+    whole-repository tracked-files check is still worth having — it lives in §20.1's manual gates,
+    which run after every step has committed.
 
 ---
 

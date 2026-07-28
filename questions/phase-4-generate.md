@@ -313,8 +313,9 @@ placeholder text, every build step has an observable "Done when", every task in 
 an epic, no orphan dependencies, every pin traceable to a provenance row, a complete
 `workspace/CLAUDE.md`, and — the sweeps that exist because real builds died on them — that every
 emitted config actually resolves what the gates import, that every standalone tool a gate invokes has
-its environment loaded, and that every number the blueprint asserts matches what the blueprint
-defines.
+its environment loaded, that every number the blueprint asserts matches what the blueprint defines,
+and that no step's `Verify` asserts repository state only that same step's `Checkpoint` could
+produce.
 
 If the subagent cannot be dispatched, run its sweeps yourself out of `agents/blueprint-validator.md`,
 in order, and say in one line that the audit was self-run. See *Never hard-depend on a subagent* at
@@ -433,8 +434,13 @@ a false failure or quietly skips the run. Neither is the intent. **This is the i
    zero-context builder: you may copy from the blueprint, you may not supply from your own knowledge.
 2. **Then run step 1's `Verify` block,** every command, each against the expected result its trailing
    comment states.
-3. **Step 1 only.** Do not implement step 2 to make a gate pass, and do not repair step 1's content
-   to make it compile.
+3. **Step 1 only — and this restriction is scoped to run 3.** Do not implement step 2 to make step
+   1's gate pass, and do not repair step 1's content to make it compile. **Run 5 is governed by its
+   own rule, not by this one:** it explicitly requires running the data-layer `Verify` *plus
+   everything §9 says must run before it*, which for most blueprints means implementing the
+   intervening steps. That is expected there and forbidden here. The two never collide, because they
+   are answering different questions — run 3 asks whether step 1 is buildable *in isolation*, run 5
+   asks whether the data layer is reachable *in §9's order*.
 
 **If implementing step 1 requires anything the blueprint does not state — a file body it never gives,
 a name it never fixes, a decision it leaves open, an import path you had to infer, a command you had
@@ -505,10 +511,22 @@ the first one that merely mentions the database in prose — take the first one 
 | Applies or generates schema | a migrate, push, generate or sync command |
 | Writes or clears data | a seed, reset or fixture-load script |
 | Runs a test that imports a server-side module | the first integration/API/repository test, not a pure-UI or pure-unit test |
+| **Reads or writes real files on disk** — the whole data layer for a tool whose storage *is* the filesystem | the first `Verify` that runs the tool against a real input file and asserts on the output file it produced |
 | Starts the local service the gates depend on and proves it accepts connections | the compose up plus the first real query against it |
 
 Then run **everything that command depends on**, in §9's order, or it is not a real test: the service
-must be up, the schema applied, the env loaded exactly the way the blueprint says it is loaded. If
+must be up, the schema applied, the env loaded exactly the way the blueprint says it is loaded.
+
+**Implementing the intervening steps IS expected here.** When the data-layer gate sits at step 5,
+you implement steps 2, 3 and 4 the way run 3 implements step 1 — from the blueprint's own literal
+content — and then run the gate. Run 3's "step 1 only" is a rule about run 3 and does not bind this
+run; if it did, run 5 would be unreachable for every blueprint whose storage gate is not at step 1 or
+2, which is most of them. **The literal-content rule still binds, and it is the finding-producing
+half:** anything you must supply that the blueprint does not state — for any of those intervening
+steps, not just the data-layer one — is itself the finding, exactly as in run 3. Send it back to the
+writer naming the step and what you had to supply.
+
+If
 you find yourself typing a command the blueprint does not contain in order to make this work — an
 export, a `cd`, a flag, a wait — **stop: that is the finding.** The builder will not know to type it
 either. Send it back to the writer rather than typing it yourself.
@@ -519,7 +537,12 @@ already know the one thing the blueprint never says.
 
 **A data layer that needs no service is a CLEAN PASS of run 5, not a blocked one.** Plenty of correct
 architectures store state without anything to start: an embedded or in-process database, a
-single-file store, an append-only log, a content-addressed cache, an index built from files on disk.
+single-file store, an append-only log, a content-addressed cache, an index built from files on disk,
+and — the simplest case, and the one to be unambiguous about — **plain filesystem I/O: a tool whose
+entire data layer is the files the user points it at**, read from and written to directly, with no
+store of any kind in between. A CSV merger, a log processor, a static-site generator and a
+file-format converter are all in this category, and every one of them has a data layer for run 5's
+purposes. Do not reason by analogy from the embedded-database row: this row is named on its own.
 For those, run 5 is *easier*, not skipped — the earliest `Verify` that applies schema, writes or
 clears data, or runs a test importing the storage module still exists, and you still run it and its
 prerequisites in §9's order. It passes or it fails on the blueprint's merits, exactly like any other.
@@ -535,7 +558,7 @@ Three situations that look adjacent, one verdict each:
 
 | Situation | Run 5 verdict |
 |---|---|
-| The store is embedded/in-process/file-based, and its first `Verify` ran | **Clean pass.** Report it as `bootstrap ×2, step 1, <entry-point command> and <data-layer command> verified` |
+| The store is embedded/in-process/file-based — **including plain filesystem I/O over the user's own files** — and its first `Verify` ran | **Clean pass.** Report it as `bootstrap ×2, step 1, <entry-point command> and <data-layer command> verified` |
 | The data layer is genuinely serviceless *and* there is no schema, no write, no seed and no test that touches storage anywhere in §9 | Say so in one line — run 5 has no target, and that is a finding about §9, not about this machine. A blueprint with a data model and no gate that exercises it goes back to the writer |
 | A service *is* required and this machine cannot start it | The environmental case below |
 
@@ -734,7 +757,7 @@ do its job in the main thread, say so in one line, and keep going.**
 |---|---|---|
 | `stack-researcher` (Step 1) | Hit the registries directly with `WebFetch`/`WebSearch`, or `npm view <pkg> version` and its ecosystem equivalents | Every pin still carries source and check date; an unresolvable pin is still written `UNVERIFIED`, never guessed from memory |
 | `blueprint-writer` (Step 4) | Compose and write the Step 3 tree yourself, reading `templates/blueprint-template.md` section by section | All 20 sections filled, §19.6 emitted with real file bodies, `Blocking gaps: none` still true before you validate |
-| `blueprint-validator` (Step 5) | Run the sweeps yourself against `agents/blueprint-validator.md`, as written | Every sweep, in order — most of all Sweep 10 and Sweeps 15–23. Self-auditing is weaker than an adversarial read, so slow down rather than skipping |
+| `blueprint-validator` (Step 5) | Run the sweeps yourself against `agents/blueprint-validator.md`, as written | Every sweep, in order — most of all Sweep 10 and Sweeps 15–24. Self-auditing is weaker than an adversarial read, so slow down rather than skipping |
 
 Three rules on the fallback:
 
@@ -767,6 +790,8 @@ a compaction mid-composition is the real risk here, not the missing agent.
 | Seven steps of green gates, then the packaging step cannot find the binary | Two emitted files disagree about where the artifact lands, and nothing ran it until then | Run 4 of Step 6 — run the entry point at the earliest step that produces it. Validator findings #30 and #31 |
 | Bootstrap's last line exits 1 with a duplicate-config or two-roots error | The bundle's `workspace/` is a second root config inside the project tree, and no emitted config excludes `blueprints/` | Runs 0 and 6 of Step 6 reproduce it — validator finding #32. Never smoke-test in a tree without the bundle |
 | The builder re-runs Bootstrap to recover and the block aborts at the copy | A no-clobber guard exits non-zero when it correctly skips — `cp -Rn` on BSD/macOS | Run 2 of Step 6 — validator finding #33. The second run must exit 0 |
+| A step's `Verify` exits 1 on `git status --porcelain`, or on `git ls-files --error-unmatch <file>` for a file that step just created | The gate asserts repository state that the same step's `Checkpoint` — which runs *after* `Verify` — is the only thing that could produce | Validator finding #34. Move the assertion into the `Checkpoint`, or assert the filesystem (`test -f <file>`) instead of the index. The same command is correct in the §20.1 gate |
+| Run 5 looks unreachable because the data-layer gate is at step 5, not step 1 | Run 3's "step 1 only" was read as binding on run 5 | It is not — run 5 requires the intervening steps. Implement them from the blueprint's literal content; anything you must supply that the blueprint does not state is still the finding |
 | Run 3 "fails" because step 1's files do not exist | Bootstrap never does step 1's work; the run was read as Verify-only | Implement step 1's deliverables from the blueprint's literal content first, then gate. Anything the blueprint does not state is the finding |
 | Every server-side test dies at import, in a config that exists | The emitted runner config does not handle a package the blueprint mandates on every server module | Validator finding #25 — the config must name the package or its resolution mechanism in its own bytes |
 | A migration or seed command exits 1 having created nothing | The tool reads an env var and nothing in the blueprint loads the env file for it | Validator finding #26 — the loading mechanism belongs in the command itself |

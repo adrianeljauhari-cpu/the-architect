@@ -301,7 +301,7 @@ waits on a human or an external service blocks the whole build behind it.
 - [ ] Gate command passes clean, run from the project root.
 - [ ] Every "Produced" contract above exists with the stated signature.
 - [ ] No file outside the subtree was modified.
-- [ ] `.env.example` updated if this epic added a variable.
+- [ ] `.env.example` updated if this epic added a variable — or state that this project has none.
 - [ ] One commit per task, each prefixed with its task id, each followed by its checkpoint tag.
 ````
 

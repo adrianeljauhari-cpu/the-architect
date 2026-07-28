@@ -428,8 +428,10 @@ work that does not run.
 ### The rules of a step
 
 1. **One sitting per step.** Agent success rate drops sharply and non-linearly with task length —
-   long steps are where builds fail. If a step touches more than ~6 files or needs more than one
-   round of design thinking, split it.
+   long steps are where builds fail. If a step touches more than **5 files** or carries more than **6 acceptance criteria**, or needs
+   more than one round of design thinking, split it. Those two numbers are the same ones
+   `templates/tasks-schema.md` enforces and `blueprint-validator` files as finding #3 — one fact,
+   stated identically everywhere, per rule 10.
 2. **Every step carries all four fields:** `Do`, `Done when`, `Verify`, `Checkpoint`. A step missing
    any of them is not a step.
    - **`Checkpoint` is a literal shell block, not a sentence.** It commits the step's work and tags
@@ -580,6 +582,77 @@ work that does not run.
       claimed twice are enumerated in §19.6's *Cross-artifact value reconciliation* table; this rule
       is what makes a disagreement in that table fail early instead of late.
 
+14. **A `Verify` may not depend on what its own `Checkpoint` produces.** Every step in this blueprint
+    runs its four fields in one fixed order — **Do → Done when → Verify → Checkpoint** — and the
+    Checkpoint is last *on purpose*, so the tag points at a state the gate already proved. The
+    consequence is absolute: at the moment a `Verify` block runs, **the step's own commit has not
+    happened.** Its new files are untracked. The working tree is dirty by exactly the amount of work
+    the step just did. Its tag does not exist. A gate that asserts otherwise fails on a **correct**
+    step, on every machine, for a reason the builder cannot fix inside the step.
+
+    Stated generally, because the shape recurs beyond version control: **a gate may not assert a
+    post-condition of a later phase of the same step.** If the thing that makes the assertion true is
+    scheduled after the assertion, the assertion is misplaced, not merely unlucky.
+
+    The concrete family — each of these is a defect *when it sits in the `Verify` of the step that
+    causes the state*:
+
+    | Written in the step's own `Verify` | What actually happens |
+    |---|---|
+    | `test -z "$(git status --porcelain)"` in a step that authored files | The tree is dirty *because the step did its job*. Clean would mean the step built nothing. Exits 1, listing the step's own files. |
+    | `git ls-files --error-unmatch LICENSE` where this step creates `LICENSE` | `error: pathspec 'LICENSE' did not match any file(s) known to git` — the file exists on disk but nothing has been `git add`ed yet. |
+    | `git diff --quiet` / any "nothing uncommitted" assertion inside a step that writes code | Same defect wearing a different command. |
+    | `git tag -l 'step-11-*' \| grep -q .` for the step's own tag | The tag is created two lines later, in the Checkpoint. |
+    | `git show step-11-licensing:path/to/file` for the step's own artifact | The commit that tag would point at does not exist yet. |
+    | Any gate reading a release, changelog entry, or artifact the Checkpoint publishes | Same shape: phase 4 output asserted in phase 3. |
+
+    **Two legal fixes, and the first is preferred:**
+
+    1. **Move the assertion into the `Checkpoint` block, after the commit.** Preferred, because the
+       property genuinely *is* a post-commit property and belongs where it becomes true. The
+       Checkpoint is a shell block like any other; it may carry assertions after its `git commit` and
+       `git tag` lines, and an assertion there still fails the step if it fails.
+
+       ```bash
+       git add -A && git commit -m "step 12: license and versioning policy"
+       git tag step-12-licensing
+       git ls-files --error-unmatch LICENSE VERSIONING.md   # expect: exit 0 — now that they are committed
+       test -z "$(git status --porcelain)"                  # expect: exit 0 — the commit above took everything
+       ```
+
+    2. **Restate the gate so it does not depend on commit state at all.** Assert the property the step
+       is actually responsible for, in a medium available during `Verify` (§9 rule 12):
+
+       | Depends on the Checkpoint | Independent restatement |
+       |---|---|
+       | `git ls-files --error-unmatch LICENSE` | `test -f LICENSE` — the file exists on disk |
+       | `test -z "$(git status --porcelain)"` | `! git check-ignore -q LICENSE` — nothing will swallow it at commit time |
+       | "the working tree is clean" | `diff -u expected/report.txt out/report.txt` — the output matches what this step promised, which is the real requirement |
+       | `git show <own tag>:config.json` | `cat config.json \| jq -e '.name == "…"'` |
+
+    **A third move is not legal: telling the builder to commit early.** "Run `git add -A && git
+    commit` before this check" reorders the step's phases and destroys the invariant the Checkpoint
+    exists to provide — a tag that points at a **verified** state. The Checkpoint is last in every
+    step template in this document, and no step may quietly opt out.
+
+    **Do not simply delete a useful check.** A tracked-files assertion is a reasonable thing to want:
+    it is exactly what catches a forgotten `.gitignore` negation, and §10's *Files that must be
+    committed* table exists because of that failure mode. It has two legal homes, both after the
+    commit that makes it decidable:
+
+    - **The step's own `Checkpoint` block**, per fix 1 — when the assertion is about files that step
+      created.
+    - **§20.1's manual gates**, which run after *every* step has committed — the right home for the
+      whole-repository version ("every file §10 names is tracked in a clean checkout"). §20.1 already
+      carries this line; add paths to it rather than inventing a per-step gate.
+
+    **The mechanical self-check.** Grep every `Verify` block for git-state assertions — `git status`,
+    `git ls-files`, `git diff --quiet`, `git tag -l`, `git show`, `porcelain`, `untracked`,
+    `--error-unmatch`. For each hit, ask one question: **does the step this gate sits in create,
+    modify, or delete any file named in it — or any file at all, for the whole-tree checks?** If yes,
+    it is misplaced; apply fix 1 or fix 2. If no — the step only reads, and some earlier step
+    committed the file — it is legitimate and stays.
+
 ### One step, one unit — the counting rule
 
 **This subsection is the single source of truth for step counts and epic counts.**
@@ -727,13 +800,20 @@ and describe what must be in it.}
 
 **Verify**
 ```bash
-{literal commands, each with the expected result in a trailing comment}
+{literal commands, each with the expected result in a trailing comment.
+
+Nothing here may depend on this step's own Checkpoint (rule 14). At this moment the step's files are
+written but untracked, the tree is dirty, and the tag does not exist — so no `git status --porcelain`
+clean check, no `git ls-files --error-unmatch` over a file this step created, no `git diff --quiet`,
+no lookup of this step's own tag. Assert the file on disk instead, or move the assertion below.}
 ```
 
 **Checkpoint**
 ```bash
 git add -A && git commit -m "step {N}: {slug}"
 git tag step-{NN}-{slug}
+{Any assertion about committed state belongs HERE, after the commit that makes it true — tracked
+files, a clean tree, the tag resolving. Each with its expected result in a trailing comment.}
 ```
 
 ---
@@ -1690,6 +1770,10 @@ Plus these manual gates, each checked once before launch:
       The repository these tags live in is created by §10's Bootstrap block, not by a scaffolder.
 - [ ] Every file §10's *Files that must be committed* table names is present in a clean checkout
       (`git ls-files --error-unmatch <path>` exits 0 for each) — no ignore pattern swallowed it.
+      **This is the home for whole-repository tracked-file assertions** (§9 rule 14): this gate runs
+      after every step has committed, so it can decide what no step's own `Verify` can. A per-step
+      version of the same check belongs in that step's `Checkpoint` block, after the commit — never
+      in its `Verify`.
 - [ ] §10's Bootstrap block has been re-run once on an already-bootstrapped tree, **exited 0**, and
       changed nothing that mattered: the package manifest still lists every installed dependency and
       the next command still finds its binaries. This proves the guarded `workspace/` copy (§19)
