@@ -5,15 +5,13 @@
     "url": "https://github.com/Hainrixz"
   },
   "metadata": {
-    "description": "EN: Design and build tooling for Claude Code by @soyenriquerocha — tododeia.com. ES: Herramientas de diseño y construcción para Claude Code por @soyenriquerocha — tododeia.com.",
-    "homepage": "https://github.com/Hainrixz/the-architect",
-    "website": "https://www.tododeia.com"
+    "description": "EN: Design and build tooling for Claude Code by @soyenriquerocha — tododeia.com. ES: Herramientas de diseño y construcción para Claude Code por @soyenriquerocha — tododeia.com."
   },
   "plugins": [
     {
       "name": "the-architect",
       "source": ".",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "description": "Interviews you about what to build, then generates a self-contained blueprint another Claude Code instance can build from autonomously — acceptance criteria and a runnable verify command on every build step. Greenfield and brownfield.",
       "keywords": [
         "architecture",
@@ -24,7 +22,10 @@
         "meta-agent",
         "claude-code"
       ],
-      "author": "Hainrixz",
+      "author": {
+        "name": "Enrique Henry",
+        "url": "https://github.com/Hainrixz"
+      },
       "license": "MIT",
       "homepage": "https://tododeia.com",
       "category": "development"
