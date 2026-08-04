@@ -1,0 +1,296 @@
+[
+  {
+    "id": "E1-T1",
+    "title": "Scaffold project, toolchain, repo and health route",
+    "epic": "01-cimientos",
+    "dependencies": [],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN `pnpm install --frozen-lockfile` runs THE SYSTEM SHALL exit 0 without modifying the lockfile.",
+      "WHEN `pnpm build` runs THE SYSTEM SHALL exit 0.",
+      "WHEN `pnpm lint` runs over the tree with the bundle present THE SYSTEM SHALL exit 0 with zero errors and zero warnings.",
+      "WHEN the smoke test invokes the `/api/health` GET handler THE SYSTEM SHALL return HTTP 200 with `ok: true`.",
+      "WHEN `NODE_ENV` is absent at import of `src/lib/env.ts` THE SYSTEM SHALL throw a named error rather than continue."
+    ],
+    "verify": [
+      "pnpm install --frozen-lockfile",
+      "pnpm typecheck",
+      "pnpm lint",
+      "pnpm build",
+      "pnpm test tests/smoke/health.test.ts"
+    ],
+    "checkpoint": "step-01-scaffold",
+    "files": ["src/lib/env.ts", "src/app/api/health/route.ts", "tests/smoke/health.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E1-T2",
+    "title": "Mirror + portal schema, migration and seed",
+    "epic": "01-cimientos",
+    "dependencies": ["E1-T1"],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN `pnpm db:migrate` runs against the local database THE SYSTEM SHALL apply every table the data model defines, and a second run SHALL be a no-op.",
+      "WHEN a `\\d products` is issued THE SYSTEM SHALL show the `prec_vta1`, `stock_act`, `stock_com` and `row_id_hex` columns.",
+      "WHEN `pnpm db:seed` runs THE SYSTEM SHALL insert the demo dataset and a second run SHALL not duplicate rows.",
+      "WHEN a query through the exported client selects a seeded product THE SYSTEM SHALL return typed rows with no `any`.",
+      "WHEN `DATABASE_URL` is absent at boot THE SYSTEM SHALL fail with a named error, not at first query."
+    ],
+    "verify": [
+      "pnpm db:up",
+      "pnpm db:generate",
+      "pnpm db:migrate",
+      "pnpm db:migrate",
+      "psql \"$DATABASE_URL\" -c \"\\d products\"",
+      "pnpm db:seed",
+      "pnpm db:seed",
+      "pnpm test tests/integration/db.test.ts"
+    ],
+    "checkpoint": "step-02-data",
+    "files": ["src/lib/db/schema.ts", "src/lib/db/index.ts", "src/lib/db/seed.ts", "src/lib/env.ts", "tests/integration/db.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E1-T3",
+    "title": "Signed, idempotent ingest API",
+    "epic": "01-cimientos",
+    "dependencies": ["E1-T2"],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN a POST arrives at `/api/ingest` with a valid HMAC signature and an `art` batch THE SYSTEM SHALL upsert each row into `products`, advance `sync_state`, and return 200.",
+      "WHEN a POST arrives with an invalid `X-Signature` THE SYSTEM SHALL respond 401 `invalid_signature` and write zero rows.",
+      "WHEN the same `event_id` is delivered twice THE SYSTEM SHALL return 200 both times and leave the mirror row count unchanged.",
+      "WHEN the body is malformed THE SYSTEM SHALL respond 400 `bad_request` and write nothing.",
+      "WHEN `SYNC_SHARED_SECRET` is unset at boot THE SYSTEM SHALL fail startup with a named error."
+    ],
+    "verify": [
+      "pnpm test tests/integration/ingest.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-03-ingest",
+    "files": ["src/app/api/ingest/route.ts", "src/lib/ingest/apply.ts", "src/lib/env.ts", "tests/integration/ingest.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E1-T4",
+    "title": "On-prem Profit sync agent",
+    "epic": "01-cimientos",
+    "dependencies": ["E1-T3"],
+    "priority": "p1",
+    "acceptance": [
+      "WHEN the agent builds a batch THE SYSTEM SHALL produce an `X-Signature` the ingest route verifies as valid for the same `SYNC_SHARED_SECRET`.",
+      "WHEN a batch is pushed and accepted THE SYSTEM SHALL update the local cursor to the batch `cursor` so the next cycle reads only newer `row_id`s.",
+      "WHEN `mssql` rejects the connection over legacy TLS THE SYSTEM SHALL surface a named error naming the TLS option to set, not hang.",
+      "WHEN a `char` code is read from Profit THE SYSTEM SHALL emit it right-trimmed."
+    ],
+    "verify": [
+      "pnpm test tests/unit/agent-push.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-04-agent",
+    "files": ["src/agent/sync.ts", "src/agent/profit.ts", "src/agent/push.ts", "src/lib/env.ts", "tests/unit/agent-push.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E1-T5",
+    "title": "Pricing cascade engine",
+    "epic": "01-cimientos",
+    "dependencies": ["E1-T2"],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN the cascade computes with `prec_vta1=2165.23`, `qty=6`, positions `(0,6,17,12)` THE SYSTEM SHALL return line net `8919.57`.",
+      "WHEN the cascade computes with `prec_vta1=589.84`, `qty=20`, positions `(0,6,34,12)` THE SYSTEM SHALL return line net `6440.49`.",
+      "WHEN the cascade computes with `prec_vta1=746.63`, `qty=50`, positions `(0,0,13,12)` THE SYSTEM SHALL return line net `28581.00`.",
+      "WHEN the cascade computes with `prec_vta1=671.97`, `qty=90`, positions `(0,0,4,12)` THE SYSTEM SHALL return line net `51091.22`.",
+      "WHEN an article appears in both a valid offer and its EXCLUIDOS twin THE SYSTEM SHALL apply zero for that offer position.",
+      "WHEN the cascade discount would exceed a product's `porc_max` THE SYSTEM SHALL cap the total discount at `porc_max`."
+    ],
+    "verify": [
+      "pnpm test tests/unit/pricing.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-05-pricing",
+    "files": ["src/lib/money.ts", "src/lib/pricing/offers.ts", "src/lib/pricing/cascade.ts", "src/lib/pricing/price.ts", "tests/unit/pricing.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E1-T6",
+    "title": "Auth and OTP activation from mirror",
+    "epic": "01-cimientos",
+    "dependencies": ["E1-T2"],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN an anonymous request hits `/catalogo` THE SYSTEM SHALL redirect to `/entrar` and return to `/catalogo` after login.",
+      "WHEN a valid OTP is confirmed for an email matching an active `customers` row THE SYSTEM SHALL create exactly one `app_users` row linked to that `co_cli`.",
+      "WHEN an OTP is requested for an email not present in `customers` THE SYSTEM SHALL create no user and report a generic message.",
+      "WHEN the same activation completes twice THE SYSTEM SHALL leave exactly one `app_users` row for that `co_cli`."
+    ],
+    "verify": [
+      "pnpm test tests/integration/auth.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-06-auth",
+    "files": ["src/lib/auth.ts", "src/app/api/auth/[...all]/route.ts", "src/app/(auth)/activar/page.tsx", "src/lib/env.ts", "tests/integration/auth.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T1",
+    "title": "Catalog PLP/PDP with per-client price",
+    "epic": "02-tienda",
+    "dependencies": ["E1-T5", "E1-T6"],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN a signed-in client opens `/catalogo` THE SYSTEM SHALL show each product's price computed with that client's `desc_glob` and offers.",
+      "WHEN a product has `is_hidden = true` THE SYSTEM SHALL omit it from the listing and return 404 for its PDP.",
+      "WHEN a product's `disponible` is 0 THE SYSTEM SHALL show it marked \"No disponible\" rather than hide it.",
+      "WHEN a client searches a term THE SYSTEM SHALL return matches from `art_des` using the text index, capped at 60 per page."
+    ],
+    "verify": [
+      "pnpm test tests/integration/catalog.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-07-catalog",
+    "files": ["src/lib/catalog/queries.ts", "src/app/(shop)/catalogo/page.tsx", "src/app/(shop)/producto/[co_art]/page.tsx", "tests/integration/catalog.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T2",
+    "title": "Server-authoritative cart with anti-oversell",
+    "epic": "02-tienda",
+    "dependencies": ["E2-T1"],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN a client submits a tampered line price THE SYSTEM SHALL ignore it and compute the total from the mirror and the pricing engine.",
+      "WHEN a client sets a line quantity above the product's `disponible` THE SYSTEM SHALL reject the update and report the available amount.",
+      "WHEN a cart is read THE SYSTEM SHALL recompute every line price server-side using the client's `desc_glob`.",
+      "WHEN the same product is added twice THE SYSTEM SHALL keep one line and sum the quantity."
+    ],
+    "verify": [
+      "pnpm test tests/integration/cart.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-08-cart",
+    "files": ["src/lib/cart/server.ts", "src/app/(shop)/carrito/page.tsx", "tests/integration/cart.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T3",
+    "title": "Quote submission with frozen price and email",
+    "epic": "02-tienda",
+    "dependencies": ["E2-T2"],
+    "priority": "p0",
+    "acceptance": [
+      "WHEN a client submits a cart THE SYSTEM SHALL create exactly one `orders` row and one `order_lines` row per cart line, each with `unit_frozen` from the pricing engine.",
+      "WHEN the order is created THE SYSTEM SHALL freeze `usd_bs_used` to the current mirror rate.",
+      "WHEN the client is `cond_1pct = true` THE SYSTEM SHALL set `applied_1pct = true` and reduce the subtotal by 1%; otherwise `applied_1pct = false`.",
+      "WHEN the order is created THE SYSTEM SHALL send the quotation email and mark the cart `submitted`.",
+      "WHEN a line references a hidden or out-of-stock product THE SYSTEM SHALL create no order and report the offending lines."
+    ],
+    "verify": [
+      "pnpm test tests/integration/orders.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-09-orders",
+    "files": ["src/lib/orders/server.ts", "src/lib/email.ts", "src/lib/env.ts", "tests/integration/orders.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T4",
+    "title": "Payment proof capture",
+    "epic": "02-tienda",
+    "dependencies": ["E1-T6"],
+    "priority": "p1",
+    "acceptance": [
+      "WHEN a client submits a valid proof THE SYSTEM SHALL store the image, insert one `payment_proofs` row, and send the notification email.",
+      "WHEN a proof is missing a required field THE SYSTEM SHALL reject it and write nothing.",
+      "WHEN the proof is stored THE SYSTEM SHALL set `emailed_at` after the email is dispatched.",
+      "WHEN a client requests the proof image URL THE SYSTEM SHALL return a signed URL, not a public one."
+    ],
+    "verify": [
+      "pnpm test tests/integration/proofs.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-10-proofs",
+    "files": ["src/lib/storage.ts", "src/app/(shop)/cuenta/pagos/page.tsx", "src/lib/env.ts", "tests/integration/proofs.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T5",
+    "title": "Account: credit, balance and history",
+    "epic": "02-tienda",
+    "dependencies": ["E2-T3", "E2-T4"],
+    "priority": "p1",
+    "acceptance": [
+      "WHEN a client opens `/cuenta` THE SYSTEM SHALL show their `mont_cre`, `saldo` and `plaz_pag` from the mirror.",
+      "WHEN a client opens `/cuenta` THE SYSTEM SHALL list only their own orders and proofs.",
+      "WHEN a client requests another client's order by id THE SYSTEM SHALL return 404.",
+      "WHEN a client is `sincredito = true` THE SYSTEM SHALL label the account \"contado\"."
+    ],
+    "verify": [
+      "pnpm test tests/integration/account.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-11-account",
+    "files": ["src/app/(shop)/cuenta/page.tsx", "src/lib/catalog/queries.ts", "tests/integration/account.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T6",
+    "title": "Admin panel: overrides, photos, activation, sync",
+    "epic": "02-tienda",
+    "dependencies": ["E1-T3", "E1-T6"],
+    "priority": "p1",
+    "acceptance": [
+      "WHEN an admin hides a product THE SYSTEM SHALL set `is_hidden = true` and the product SHALL disappear from the client catalog.",
+      "WHEN a non-admin requests any `/admin` route THE SYSTEM SHALL return 404.",
+      "WHEN an admin activates a contactless client THE SYSTEM SHALL create an `app_users` row for that `co_cli`.",
+      "WHEN an admin opens the dashboard THE SYSTEM SHALL show the last sync time per source from `sync_state`."
+    ],
+    "verify": [
+      "pnpm test tests/integration/admin.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-12-admin",
+    "files": ["src/app/(admin)/admin/productos/page.tsx", "src/app/(admin)/admin/clientes/page.tsx", "src/app/(admin)/admin/page.tsx", "tests/integration/admin.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T7",
+    "title": "Observability, reconciliation and health",
+    "epic": "02-tienda",
+    "dependencies": ["E2-T3", "E2-T6"],
+    "priority": "p1",
+    "acceptance": [
+      "WHEN `/api/health` is requested with a fresh mirror THE SYSTEM SHALL return 200 `status: ok`.",
+      "WHEN the newest `products.synced_at` is older than the threshold THE SYSTEM SHALL return `status: degraded`.",
+      "WHEN the reconcile check runs on a clean dataset THE SYSTEM SHALL report zero orders without lines and zero lines exceeding `porc_max`."
+    ],
+    "verify": [
+      "pnpm test tests/integration/reconcile.test.ts",
+      "pnpm typecheck"
+    ],
+    "checkpoint": "step-13-observability",
+    "files": ["src/app/api/health/route.ts", "src/lib/reconcile.ts", "tests/integration/reconcile.test.ts"],
+    "status": "pending"
+  },
+  {
+    "id": "E2-T8",
+    "title": "E2E, a11y, CI and deploy",
+    "epic": "02-tienda",
+    "dependencies": ["E2-T7"],
+    "priority": "p1",
+    "acceptance": [
+      "WHEN the e2e flow runs THE SYSTEM SHALL complete login then catalog then cart then submit and assert a quotation row exists.",
+      "WHEN the a11y suite runs over catalog and cart THE SYSTEM SHALL report 0 violations.",
+      "WHEN the CI workflow runs THE SYSTEM SHALL execute the global acceptance gate and exit 0."
+    ],
+    "verify": [
+      "pnpm test:e2e tests/e2e/pedido.spec.ts",
+      "pnpm test:e2e tests/e2e/a11y.spec.ts",
+      "pnpm build"
+    ],
+    "checkpoint": "step-14-deploy",
+    "files": ["tests/e2e/pedido.spec.ts", "tests/e2e/a11y.spec.ts", ".github/workflows/ci.yml", "vercel.json"],
+    "status": "pending"
+  }
+]
