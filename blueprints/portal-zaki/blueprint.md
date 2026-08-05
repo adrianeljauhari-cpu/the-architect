@@ -234,7 +234,7 @@ ingest, nunca borrado (se marca `anulado`).
 | `co_subl` | text | | Sublínea (nivel 3) |
 | `co_prov` | text | | Proveedor / laboratorio |
 | `uni_venta` | text | | Unidad de venta |
-| `prec_vta1` | numeric(18,5) | not null | Precio de venta base (moneda base — ver §20.3) |
+| `prec_vta1` | numeric(18,5) | not null | Precio de venta base en **Bolívares** (confirmado por el usuario); el USD se deriva con la tasa |
 | `stock_act` | numeric(18,3) | not null default 0 | Existencia física total |
 | `stock_com` | numeric(18,3) | not null default 0 | Existencia comprometida |
 | `anulado` | boolean | not null default false | Producto anulado en Profit → no vendible |
