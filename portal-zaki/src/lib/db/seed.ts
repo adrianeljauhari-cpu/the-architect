@@ -1,6 +1,7 @@
 // dotenv FIRST: this is a standalone tsx entrypoint, so nothing else loads .env
 // (NODE_ENV, DATABASE_URL) before src/lib/env.ts validates it. Order is load-bearing.
 import "dotenv/config";
+import { fileURLToPath } from "node:url";
 import { db } from "@/lib/db/index";
 import {
   appUsers,
@@ -178,7 +179,7 @@ const productSeed: ProductSeed[] = [
   stockCom,
 }));
 
-async function seed() {
+export async function seed() {
   // --- products (mirror) ---
   await db
     .insert(products)
@@ -352,9 +353,12 @@ async function seed() {
   console.log("seed: done");
 }
 
-seed()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error("seed: failed", err);
-    process.exit(1);
-  });
+// Run as a CLI (`pnpm db:seed`) but stay importable (integration tests self-seed).
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  seed()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error("seed: failed", err);
+      process.exit(1);
+    });
+}
