@@ -12,9 +12,11 @@ paths:
 - Los códigos `char` de Profit vienen con relleno de espacios: aplicar `RTRIM` a `co_art`, `co_cli`,
   `co_ofer` antes de emitir.
 - Disponible: `stock_act - stock_com`, nunca negativo (mostrar 0).
-- `is_exclusion`: derivar si `ofer_des` termina en "EXCLUIDOS" (frágil; documentado como riesgo).
+- Sincronizar `clientes.co_seg` (segmento) y los rangos de `oferta` (`co_seg_d/h`, `co_cli_d/h`). Las
+  ofertas se aplican por segmento del cliente; **EXCLUIDOS = segmento 70**, no por texto.
+- Tasa de cambio: leer de la tabla **`tasas`** (la actualiza un operador a las 12:00).
 - Empuje al portal: arma lote con `event_id` (uuid), firma HMAC con `SYNC_SHARED_SECRET`, POST a
   `INGEST_URL`. El agente carga env con `import "dotenv/config"`.
-- TLS legacy: SQL Server 2005/2008 puede requerir `options.encrypt=false` y
-  `options.trustServerCertificate=true`. Solo válido dentro de la red local; nunca exponer el SQL Server.
+- **SQL Server 2019 Enterprise (confirmado):** TLS estándar del driver `mssql`; sin workaround legacy.
+  `trustServerCertificate=true` solo si hay certificado autofirmado. Nunca exponer el SQL Server.
 - Sin React, sin `components/`. Comparte solo `src/lib/db/schema.ts`, `src/lib/env.ts`, `src/lib/money.ts`.

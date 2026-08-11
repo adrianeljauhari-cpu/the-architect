@@ -258,7 +258,7 @@ El proceso que corre junto al SQL Server de Profit y empuja al ingest. `src/agen
 
 1. **WHEN** the agent builds a batch **THE SYSTEM SHALL** produce an `X-Signature` the ingest route verifies as valid for the same `SYNC_SHARED_SECRET`.
 2. **WHEN** a batch is pushed and accepted **THE SYSTEM SHALL** update the local cursor to the batch `cursor` so the next cycle reads only newer `row_id`s.
-3. **WHEN** `mssql` rejects the connection over legacy TLS **THE SYSTEM SHALL** surface a named error naming the TLS option to set, not hang.
+3. **WHEN** the SQL Server connection fails **THE SYSTEM SHALL** surface a named error and exit non-zero, not hang.
 4. **WHEN** a `char` code is read from Profit **THE SYSTEM SHALL** emit it right-trimmed.
 
 **Verify**
@@ -294,7 +294,7 @@ El corazón del sistema: replica la cascada validada del dossier. `src/lib/money
 2. **WHEN** the cascade computes with `prec_vta1=589.84`, `qty=20`, positions `(0,6,34,12)` **THE SYSTEM SHALL** return line net `6440.49`.
 3. **WHEN** the cascade computes with `prec_vta1=746.63`, `qty=50`, positions `(0,0,13,12)` **THE SYSTEM SHALL** return line net `28581.00`.
 4. **WHEN** the cascade computes with `prec_vta1=671.97`, `qty=90`, positions `(0,0,4,12)` **THE SYSTEM SHALL** return line net `51091.22`.
-5. **WHEN** an article appears in both a valid offer and its EXCLUIDOS twin **THE SYSTEM SHALL** apply zero for that offer position.
+5. **WHEN** a customer's segment `co_seg` is 70 (EXCLUIDOS) **THE SYSTEM SHALL** apply only offers configured for segment 70, not the general-segment offers.
 6. **WHEN** the cascade discount would exceed a product's `porc_max` **THE SYSTEM SHALL** cap the total discount at `porc_max`.
 
 **Verify**
