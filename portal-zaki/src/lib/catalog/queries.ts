@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db/index";
 import {
   customerOfferLines,
@@ -7,6 +7,9 @@ import {
   exchangeRate,
   offerLines,
   offers,
+  orderLines,
+  orders,
+  paymentProofs,
   productCaps,
   productOverrides,
   products,
@@ -227,4 +230,135 @@ export async function getCatalogProduct(
 
   const { items } = await priceProducts(client, [row], at);
   return items[0] ?? null;
+}
+
+/* ------------------------------------------------------------- account --- */
+// Read-only credit/history views, always scoped by co_cli (§8 isolation).
+
+export type AccountSummary = {
+  coCli: string;
+  cliDes: string;
+  montCre: string;
+  saldo: string;
+  plazPag: number;
+  sincredito: boolean;
+};
+
+export async function getAccountSummary(
+  coCli: string,
+): Promise<AccountSummary | null> {
+  const [row] = await db
+    .select({
+      coCli: customers.coCli,
+      cliDes: customers.cliDes,
+      montCre: customers.montCre,
+      saldo: customers.saldo,
+      plazPag: customers.plazPag,
+      sincredito: customers.sincredito,
+    })
+    .from(customers)
+    .where(and(eq(customers.coCli, coCli), eq(customers.inactivo, false)))
+    .limit(1);
+  return row ?? null;
+}
+
+export type OrderSummary = {
+  id: string;
+  orderNumber: string;
+  createdAt: Date;
+  total: string;
+  status: string;
+};
+
+export async function getClientOrders(coCli: string): Promise<OrderSummary[]> {
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      createdAt: orders.createdAt,
+      total: orders.total,
+      status: orders.status,
+    })
+    .from(orders)
+    .where(eq(orders.coCli, coCli))
+    .orderBy(desc(orders.createdAt));
+}
+
+export type ProofSummary = {
+  id: string;
+  amount: string;
+  currency: string;
+  method: string;
+  reference: string;
+  createdAt: Date;
+  emailedAt: Date | null;
+};
+
+export async function getClientProofs(coCli: string): Promise<ProofSummary[]> {
+  return db
+    .select({
+      id: paymentProofs.id,
+      amount: paymentProofs.amount,
+      currency: paymentProofs.currency,
+      method: paymentProofs.method,
+      reference: paymentProofs.reference,
+      createdAt: paymentProofs.createdAt,
+      emailedAt: paymentProofs.emailedAt,
+    })
+    .from(paymentProofs)
+    .where(eq(paymentProofs.coCli, coCli))
+    .orderBy(desc(paymentProofs.createdAt));
+}
+
+export type OrderDetail = {
+  order: OrderSummary & {
+    subtotal: string;
+    usdBsUsed: string;
+    applied1pct: boolean;
+  };
+  lines: {
+    coArt: string;
+    artDes: string;
+    qty: string;
+    unitFrozen: string;
+    lineNet: string;
+  }[];
+};
+
+/** One order, only if it belongs to `coCli` — otherwise null (cross-client → 404). */
+export async function getClientOrder(
+  coCli: string,
+  orderId: string,
+): Promise<OrderDetail | null> {
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.coCli, coCli)))
+    .limit(1);
+  if (!order) return null;
+
+  const lines = await db
+    .select({
+      coArt: orderLines.coArt,
+      artDes: orderLines.artDes,
+      qty: orderLines.qty,
+      unitFrozen: orderLines.unitFrozen,
+      lineNet: orderLines.lineNet,
+    })
+    .from(orderLines)
+    .where(eq(orderLines.orderId, orderId));
+
+  return {
+    order: {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      total: order.total,
+      status: order.status,
+      subtotal: order.subtotal,
+      usdBsUsed: order.usdBsUsed,
+      applied1pct: order.applied1pct,
+    },
+    lines,
+  };
 }
