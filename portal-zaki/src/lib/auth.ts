@@ -1,7 +1,7 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { emailOTP } from "better-auth/plugins/email-otp";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { headers as nextHeaders } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/index";
@@ -39,7 +39,12 @@ async function activeCustomerByEmail(email: string) {
   return row ?? null;
 }
 
-/** Provision (idempotently) the app_user that links a Better Auth identity to a co_cli. */
+/**
+ * Provision (idempotently) the app_user that links a Better Auth identity to a
+ * co_cli. If an admin pre-created a contactless app_user (auth_user_id null),
+ * this links it on the client's first self-activation (§8); the setWhere guard
+ * never overwrites an already-linked account.
+ */
 async function provisionAppUser(
   authUserId: string,
   email: string,
@@ -49,7 +54,20 @@ async function provisionAppUser(
   await db
     .insert(appUsers)
     .values({ authUserId, coCli: customer.coCli, role: "client" })
-    .onConflictDoNothing({ target: appUsers.coCli });
+    .onConflictDoUpdate({
+      target: appUsers.coCli,
+      set: { authUserId },
+      setWhere: isNull(appUsers.authUserId),
+    });
+}
+
+async function provisionFromUserId(userId: string): Promise<void> {
+  const [row] = await db
+    .select({ email: user.email })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (row) await provisionAppUser(userId, row.email);
 }
 
 export const auth = betterAuth({
@@ -67,6 +85,15 @@ export const auth = betterAuth({
         },
       },
     },
+    // Also link on every sign-in: a returning user does not re-trigger user.create,
+    // so this guarantees a pre-existing unlinked app_user gets linked.
+    session: {
+      create: {
+        after: async (created) => {
+          await provisionFromUserId(created.userId);
+        },
+      },
+    },
   },
   plugins: [
     emailOTP({
@@ -76,11 +103,13 @@ export const auth = betterAuth({
       sendVerificationOTP: async ({ email, otp }) => {
         const customer = await activeCustomerByEmail(email);
         if (!customer) return;
-        if (env.NODE_ENV === "test") {
-          _testOtpMailbox.set(email, otp);
+        // Outside production the code is captured in-memory (tests) and exposed
+        // via the guarded /api/dev/last-otp route (E2E). Production delivers via
+        // Resend — wired at launch.
+        if (env.NODE_ENV === "production") {
+          console.info(`[activation] OTP dispatched for ${email}`);
         } else {
-          // Real delivery (Resend) is wired in a later step.
-          console.info(`[activation] OTP for ${email}: ${otp}`);
+          _testOtpMailbox.set(email, otp);
         }
       },
     }),

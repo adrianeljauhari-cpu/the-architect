@@ -165,23 +165,29 @@ export async function submitOrder(
     return created.id;
   });
 
+  // Email is a notification, not the source of truth: the order is already
+  // committed, so a delivery failure (e.g. no Resend key in dev) must not lose it.
   const sendEmail = deps.sendEmail ?? sendQuotationEmail;
-  await sendEmail({
-    orderNumber,
-    coCli,
-    clientEmail: deps.clientEmail ?? null,
-    usdBs: usdBsUsed,
-    subtotal: round2(subtotal),
-    total: round2(total),
-    applied1pct,
-    lines: plans.map((plan) => ({
-      coArt: plan.coArt,
-      artDes: plan.artDes,
-      qty: plan.qty,
-      unitFrozen: plan.unitFrozen,
-      lineNet: plan.lineNet,
-    })),
-  });
+  try {
+    await sendEmail({
+      orderNumber,
+      coCli,
+      clientEmail: deps.clientEmail ?? null,
+      usdBs: usdBsUsed,
+      subtotal: round2(subtotal),
+      total: round2(total),
+      applied1pct,
+      lines: plans.map((plan) => ({
+        coArt: plan.coArt,
+        artDes: plan.artDes,
+        qty: plan.qty,
+        unitFrozen: plan.unitFrozen,
+        lineNet: plan.lineNet,
+      })),
+    });
+  } catch (err) {
+    console.error(`quotation email failed for ${orderNumber}:`, err);
+  }
 
   return { ok: true, orderId, orderNumber };
 }
