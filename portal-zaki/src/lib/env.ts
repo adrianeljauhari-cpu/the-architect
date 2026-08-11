@@ -26,6 +26,10 @@ const envSchema = z.object({
   SYNC_SHARED_SECRET: z.string().min(1),
   // Where the agent POSTs signed batches. Present on both tiers via .env.
   INGEST_URL: z.string().min(1),
+  // Better Auth session signing secret.
+  BETTER_AUTH_SECRET: z.string().min(1),
+  // Public origin for Better Auth cookies/callbacks; defaults to localhost in dev.
+  BETTER_AUTH_URL: z.string().min(1).default("http://localhost:3000"),
 });
 
 /** Thrown at import time when the environment is invalid — fail fast, never continue. */
