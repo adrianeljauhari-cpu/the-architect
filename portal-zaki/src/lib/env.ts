@@ -10,9 +10,13 @@ import { z } from "zod";
  *
  * Required so far:
  *   - NODE_ENV (step 1)
+ *   - DATABASE_URL (step 2)
  */
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]),
+  DATABASE_URL: z.string().min(1),
+  // Optional: integration tests point the db client here instead of DATABASE_URL.
+  TEST_DATABASE_URL: z.string().min(1).optional(),
 });
 
 /** Thrown at import time when the environment is invalid — fail fast, never continue. */
