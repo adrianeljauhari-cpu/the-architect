@@ -65,8 +65,8 @@ const profitEnvSchema = z.object({
 
 export type ProfitEnv = z.infer<typeof profitEnvSchema>;
 
-export function getProfitEnv(): ProfitEnv {
-  const result = profitEnvSchema.safeParse(process.env);
+function validateLazy<T>(schema: z.ZodType<T>): T {
+  const result = schema.safeParse(process.env);
   if (!result.success) {
     const issues = result.error.issues
       .map(
@@ -76,4 +76,44 @@ export function getProfitEnv(): ProfitEnv {
     throw new EnvironmentValidationError(issues);
   }
   return result.data;
+}
+
+export function getProfitEnv(): ProfitEnv {
+  return validateLazy(profitEnvSchema);
+}
+
+/**
+ * Runtime-only secrets for outbound email (Resend) and file storage (Supabase),
+ * validated lazily at the point of use. Tests inject doubles and never touch
+ * these, so the web build/gates stay green with the keys empty until launch.
+ */
+const emailEnvSchema = z.object({
+  RESEND_API_KEY: z.string().min(1),
+  ORDER_NOTIFY_EMAIL: z.string().min(1),
+});
+
+const proofNotifyEnvSchema = z.object({
+  RESEND_API_KEY: z.string().min(1),
+  PROOF_NOTIFY_EMAIL: z.string().min(1),
+});
+
+const storageEnvSchema = z.object({
+  SUPABASE_URL: z.string().min(1),
+  SUPABASE_SERVICE_KEY: z.string().min(1),
+});
+
+export type EmailEnv = z.infer<typeof emailEnvSchema>;
+export type ProofNotifyEnv = z.infer<typeof proofNotifyEnvSchema>;
+export type StorageEnv = z.infer<typeof storageEnvSchema>;
+
+export function getEmailEnv(): EmailEnv {
+  return validateLazy(emailEnvSchema);
+}
+
+export function getProofNotifyEnv(): ProofNotifyEnv {
+  return validateLazy(proofNotifyEnvSchema);
+}
+
+export function getStorageEnv(): StorageEnv {
+  return validateLazy(storageEnvSchema);
 }

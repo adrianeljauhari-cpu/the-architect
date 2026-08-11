@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { QtyStepper } from "@/components/shop/qty-stepper";
+import { SubmitOrderButton } from "@/components/shop/submit-order-button";
 import { requireClient } from "@/lib/auth";
 import { getCart } from "@/lib/cart/server";
 
@@ -56,6 +57,8 @@ export default async function CarritoPage() {
         ) : null}
         <p className="font-semibold text-fg text-lg">Total: Bs {cart.total}</p>
       </div>
+
+      <SubmitOrderButton />
     </main>
   );
 }

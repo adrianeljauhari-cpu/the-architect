@@ -12,5 +12,8 @@ export default defineConfig({
     environment: "node",
     setupFiles: ["./tests/setup.ts"],
     exclude: ["**/node_modules/**", "blueprints/**", "tests/e2e/**"],
+    // Integration suites share one Postgres, so run files sequentially to avoid
+    // cross-file races on shared rows (each file still cleans up its own scope).
+    fileParallelism: false,
   },
 });
