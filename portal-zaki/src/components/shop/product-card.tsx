@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AddToCartButton } from "@/components/shop/add-to-cart-button";
 import type { CatalogItem } from "@/lib/catalog/queries";
 
 /** A catalog tile: name, per-client price (Bs · USD), and stock. Out-of-stock is
@@ -26,6 +27,9 @@ export function ProductCard({ item }: { item: CatalogItem }) {
       >
         {soldOut ? "No disponible" : `Disponible: ${item.disponible}`}
       </p>
+      <div className="mt-auto pt-2">
+        <AddToCartButton coArt={item.coArt} disabled={soldOut} />
+      </div>
     </article>
   );
 }
