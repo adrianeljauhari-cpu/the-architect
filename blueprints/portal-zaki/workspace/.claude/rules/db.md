@@ -8,7 +8,8 @@ paths:
 # Datos: esquema y migraciones
 
 - Dos familias de tablas: **espejo** (copia solo-lectura de Profit: `products`, `customers`, `offers`,
-  `offer_lines`, `product_caps`, `exchange_rate`) y **propias del portal** (`carts`, `orders`,
+  `offer_lines`, `customer_offers`, `customer_offer_lines`, `product_caps`, `exchange_rate`) y
+  **propias del portal** (`carts`, `orders`,
   `payment_proofs`, `app_users`, `sync_state`, `ingest_events`, `product_overrides`, `audit_log`).
 - Las tablas espejo se escriben **solo** desde `src/lib/ingest/apply.ts`. Ningún otro módulo hace
   INSERT/UPDATE sobre ellas.

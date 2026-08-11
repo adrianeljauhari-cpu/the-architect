@@ -12,8 +12,9 @@ paths:
 - Los códigos `char` de Profit vienen con relleno de espacios: aplicar `RTRIM` a `co_art`, `co_cli`,
   `co_ofer` antes de emitir.
 - Disponible: `stock_act - stock_com`, nunca negativo (mostrar 0).
-- Sincronizar `clientes.co_seg` (segmento) y los rangos de `oferta` (`co_seg_d/h`, `co_cli_d/h`). Las
-  ofertas se aplican por segmento del cliente; **EXCLUIDOS = segmento 70**, no por texto.
+- Sincronizar `clientes.co_seg` (segmento) y `clientes.tipo`, los rangos de `oferta` (`co_seg_d/h`,
+  `co_cli_d/h`) y `oferta_cli`/`reng_cliofer` (posición 2, por `tipo_d/h` o `co_cli_d/h`). Las ofertas
+  por segmento se aplican por el segmento del cliente; **EXCLUIDOS = segmento 70**, no por texto.
 - Tasa de cambio: leer de la tabla **`tasas`** (la actualiza un operador a las 12:00).
 - Empuje al portal: arma lote con `event_id` (uuid), firma HMAC con `SYNC_SHARED_SECRET`, POST a
   `INGEST_URL`. El agente carga env con `import "dotenv/config"`.

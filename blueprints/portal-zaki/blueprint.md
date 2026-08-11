@@ -56,7 +56,7 @@ proveedor externo para su canal de venta y no puede evolucionarlo a su ritmo.
 |---|---|---|
 | Pasarela de pago en línea (tarjeta/PSE) | El negocio cobra a crédito y por comprobante; no hay demanda de cobro instantáneo | Un segmento de clientes exija pagar en línea |
 | Escritura directa de pedidos en Profit Plus | El ERP es la fuente de verdad y debe quedar intacto; el flujo actual es importación manual | Profit exponga una API de importación soportada por el proveedor |
-| Escalas de descuento por volumen (posición 2, tabla `descuen`) | Confirmado: `descuen` está **vacía**; no existen escalas por volumen. La posición 2 es 0 | Aparezcan datos en `descuen` en el futuro |
+| Escalas de descuento por volumen (tabla `descuen`) | Confirmado: `descuen` está **vacía**; no hay escalas por volumen. La posición 2 la alimenta `oferta_cli`, no `descuen` | Aparezcan datos en `descuen` en el futuro |
 | Lotes y fechas de vencimiento | Existe en Profit pero no se inspeccionó; no es imprescindible para pedir | Las farmacias pidan ver vencimientos en el catálogo |
 | Búsqueda por código de barras | El catálogo real (`art`) no tiene código de barras; solo existe en una tabla de importación de 1.166 filas | Se consolide una fuente de EAN-13 para todo el catálogo |
 | App móvil nativa | El portal web responsive cubre el caso; una app añade tiendas, firma y releases | Haya tracción y una necesidad concreta de funciones nativas |
@@ -264,7 +264,8 @@ ingest, nunca borrado (se marca `anulado`).
 | `saldo` | numeric(18,2) | not null default 0 | Saldo actual (deuda) |
 | `plaz_pag` | integer | not null default 0 | Días de crédito |
 | `sincredito` | boolean | not null default false | Cliente sin crédito (contado) |
-| `co_seg` | text | | **Segmento del cliente** (10=A, 20=B, 30=C, 40=D, 60=NUEVO, 70=EXCLUIDOS). Decide qué ofertas le aplican |
+| `co_seg` | text | | **Segmento del cliente** (10=A, 20=B, 30=C, 40=D, 60=NUEVO, 70=EXCLUIDOS). Decide qué ofertas de segmento le aplican |
+| `tipo` | text | | Tipo/grupo del cliente — objetivo de `oferta_cli` (posición 2) |
 | `cond_1pct` | boolean | not null default false | Elegible al 1% global por portal (derivado de la condición del cliente) |
 | `inactivo` | boolean | not null default false | Cliente inactivo → sin acceso |
 | `row_id_hex` | text | not null | Cursor de sync |
@@ -294,6 +295,29 @@ un cliente de segmento 70 solo toma ofertas configuradas para 70.
 | `co_art` | text | | Artículo |
 | `porc_ofer` | numeric(6,3) | not null | % de descuento de la oferta |
 | — | | PK (`co_ofer`,`co_art`) | |
+| `synced_at` | timestamptz | not null | |
+
+**`customer_offers`** — espejo de cabeceras `oferta_cli` (**posición 2** de la cascada). Aplica por
+tipo/grupo (`[tipo_d, tipo_h]`) o por cliente (`[co_cli_d, co_cli_h]`), dentro de la vigencia.
+
+| Field | Type | Constraints | Notes |
+|---|---|---|---|
+| `co_ofer` | text | PK | |
+| `ofer_des` | text | not null | Descripción |
+| `fec_inic` | timestamptz | not null | Vigencia desde |
+| `fec_fin` | timestamptz | not null | Vigencia hasta |
+| `tipo_d` / `tipo_h` | text | | Rango de tipo/grupo de cliente |
+| `co_cli_d` / `co_cli_h` | text | | Rango de cliente |
+| `synced_at` | timestamptz | not null | |
+
+**`customer_offer_lines`** — espejo de `reng_cliofer` (detalle por cliente).
+
+| Field | Type | Constraints | Notes |
+|---|---|---|---|
+| `co_ofer` | text | FK→customer_offers.co_ofer | |
+| `co_cli` | text | | Cliente |
+| `porc_ofer` | numeric(6,3) | not null | % de la posición 2 para ese cliente |
+| — | | PK (`co_ofer`,`co_cli`) | |
 | `synced_at` | timestamptz | not null | |
 
 **`product_caps`** — espejo de `art_ext.porc_max` (tope de descuento de productos regulados).
@@ -464,9 +488,10 @@ migrate → contract; nunca una migración destructiva en el mismo deploy que el
 
 `src/lib/db/seed.ts` (corrido con `pnpm db:seed`) siembra un dataset realista tomado del dossier:
 ~20 productos con los códigos y descripciones reales (`OMEPRAZOL 20 MG X 10 CAP ( ZAKIMED )`, etc.),
-3 clientes con `desc_glob` distinto (uno con 12,00 como el cliente `0370`), 2 pares de ofertas
-vigentes con su gemela EXCLUIDOS, un producto con `porc_max`, una tasa de cambio vigente, y un
-`app_user` admin. Con eso la app es navegable en el primer arranque local.
+3 clientes con `desc_glob` distinto (uno con 12,00 como el cliente `0370`) y **segmentos distintos**
+(uno en segmento 70 = EXCLUIDOS), ofertas de segmento vigentes (p1 y p3) y una `oferta_cli` vigente
+(p2), una tasa de cambio vigente, y un `app_user` admin. Con eso la app es navegable en el primer
+arranque local.
 
 ---
 
@@ -500,7 +525,7 @@ vigentes con su gemela EXCLUIDOS, un producto con `porc_max`, una tasa de cambio
 
 **`POST /api/ingest`** — el único camino de escritura al espejo.
 - Request: header `X-Signature: sha256=<hmac>` sobre el cuerpo crudo con `SYNC_SHARED_SECRET`; cuerpo
-  `{ event_id: string(uuid), source: 'art'|'clientes'|'oferta'|'offer_lines'|'art_ext'|'exchange_rate', rows: Row[], cursor: string }`.
+  `{ event_id: string(uuid), source: 'art'|'clientes'|'oferta'|'offer_lines'|'customer_offers'|'customer_offer_lines'|'exchange_rate', rows: Row[], cursor: string }`.
 - Validación: firma HMAC verificada **antes** de parsear el cuerpo como confiable; luego `zod` sobre
   la forma; `source` en el conjunto enumerado.
 - Reglas / errores:
@@ -831,10 +856,11 @@ git tag step-03-ingest
 **Do**
 El proceso que corre junto al SQL Server de Profit y empuja al ingest. Crear:
 - `src/agent/profit.ts` — consultas **solo lectura** a SQL Server (driver `mssql`) para `art`,
-  `clientes` (incl. `co_seg`), `oferta` (incl. `co_seg_d/h`, `co_cli_d/h`), `reng_ofer` y la tabla
-  `tasas`, filtrando por `row_id > @cursor` donde exista; aplica `RTRIM` a los códigos `char` y calcula
-  `disponible`. **SQL Server 2019 Enterprise (confirmado)**: conexión cifrada estándar del driver
-  `mssql`, sin workaround de TLS legacy.
+  `clientes` (incl. `co_seg`, `tipo`), `oferta` (incl. `co_seg_d/h`, `co_cli_d/h`), `reng_ofer`,
+  `oferta_cli` (incl. `tipo_d/h`, `co_cli_d/h`), `reng_cliofer` y la tabla `tasas`, filtrando por
+  `row_id > @cursor` donde exista; aplica `RTRIM` a los códigos `char` y calcula `disponible`.
+  **SQL Server 2019 Enterprise (confirmado)**: conexión cifrada estándar del driver `mssql`, sin
+  workaround de TLS legacy.
 - `src/agent/push.ts` — arma el lote con `event_id` (uuid), firma HMAC con `SYNC_SHARED_SECRET`, hace
   `POST` al `INGEST_URL`, carga dotenv.
 - `src/agent/sync.ts` — orquesta: lee `sync_state` remoto por tabla, lee incremental de Profit,
@@ -872,16 +898,16 @@ git tag step-04-agent
 **Do**
 El corazón del sistema. Replica la cascada validada del dossier. Crear:
 - `src/lib/money.ts` — helpers `big.js`: multiplicar por `(1 - p/100)`, encadenar, redondear a 2.
-- `src/lib/pricing/offers.ts` — dado un producto y el **cliente** (`co_seg` y `co_cli`), resuelve el %
-  vigente de la posición 1 (`oferta pos_ofer=0`) y de la posición 3 (`oferta pos_ofer=1`): una oferta
-  aplica cuando el segmento del cliente cae en `[co_seg_d, co_seg_h]` **o** su código en
-  `[co_cli_d, co_cli_h]`, el producto entra en su alcance, y `now` está entre `fec_inic` y `fec_fin`.
-  **EXCLUIDOS es el segmento 70** — un cliente de segmento 70 solo toma ofertas de segmento 70 (sin
-  emparejamiento por texto). Contempla también `oferta_cli` (por tipo/grupo o por cliente). *La regla
-  exacta de combinación de `oferta_cli` se confirma antes del corte (ver §20.2).*
-- `src/lib/pricing/cascade.ts` — `neto_unit = prec_vta1 × (1-p1)(1-p2)(1-p3)(1-p4)`, multiplicativa.
-  **`p2 = 0` (confirmado: `descuen` vacía).** El techo `porc_max` es un no-op en v1 (`art_ext` vacía);
-  la función lo aplica defensivamente si algún día aparece un tope.
+- `src/lib/pricing/offers.ts` — resuelve las ofertas vigentes por posición para un `(cliente, producto)`:
+  **p1** (`oferta pos_ofer=0`, proveedor, por segmento), **p3** (`oferta pos_ofer=1`, droguería, por
+  segmento) y **p2** (`oferta_cli`, por tipo/grupo `[tipo_d, tipo_h]` o por cliente `[co_cli_d, co_cli_h]`).
+  Una oferta por segmento aplica cuando `customers.co_seg` cae en `[co_seg_d, co_seg_h]` (o el `co_cli`
+  en su rango), el producto entra en su alcance, y `now` está entre `fec_inic` y `fec_fin`. **EXCLUIDOS
+  es el segmento 70** — un cliente 70 solo toma ofertas de segmento 70 (sin emparejamiento por texto).
+- `src/lib/pricing/cascade.ts` — `neto_unit = prec_vta1 × (1-p1)(1-p2)(1-p3)(1-p4)`, **multiplicativa:
+  los descuentos se encadenan, no se suman**. `descuen` está vacía, así que la **posición 2 la alimenta
+  `oferta_cli`** (confirmado por el usuario: se encadena en cascada). El techo `porc_max` es un no-op en
+  v1 (`art_ext` vacía); la función lo aplica defensivamente si algún día aparece un tope.
 - `src/lib/pricing/price.ts` — precio efectivo por `(cliente, producto, cantidad)`: usa `desc_glob`
   como p4, las ofertas de `offers.ts` como p1/p3, y expone si el 1% global aplica según
   `customers.cond_1pct`.
@@ -1397,7 +1423,7 @@ registra el `latest` real y el motivo de la desviación.
 | @supabase/supabase-js | 2.112.0 | registry.npmjs.org/-/package/@supabase/supabase-js/dist-tags | 2026-08-04 | §10 Bootstrap | Storage (fotos, comprobantes) |
 | big.js | 7.0.1 | registry.npmjs.org/-/package/big.js/dist-tags | 2026-08-04 | §10 Bootstrap | Aritmética decimal de la cascada |
 | pino | 10.3.1 | registry.npmjs.org/-/package/pino/dist-tags | 2026-08-04 | §10 Bootstrap | Logging estructurado (server + agente) |
-| mssql | 12.7.0 | registry.npmjs.org/-/package/mssql/dist-tags | 2026-08-04 | §10 Bootstrap | Driver SQL Server (agente). Ojo: TLS legacy de SQL Server 2005/2008 puede requerir `encrypt:false`/`trustServerCertificate` (§14) |
+| mssql | 12.7.0 | registry.npmjs.org/-/package/mssql/dist-tags | 2026-08-04 | §10 Bootstrap | Driver SQL Server (agente). SQL Server 2019 confirmado: TLS estándar, sin workaround legacy (§14) |
 | tailwindcss | 4.3.3 | registry.npmjs.org/-/package/tailwindcss/dist-tags | 2026-08-04 | §10 (create-next-app) | Estilos |
 | dotenv | 17.4.2 | registry.npmjs.org/-/package/dotenv/dist-tags | 2026-08-04 | §10 Bootstrap | Carga de env para herramientas standalone |
 
@@ -1780,7 +1806,7 @@ Manual gates, cada uno chequeado una vez antes del lanzamiento:
 |---|---|---|---|---|
 | Cascada mal replicada → precio firme incorrecto (venta bajo costo) | M | H | Un pedido del piloto con precio distinto al de Profit | Tests al céntimo (paso 5) + período sombra con 0 diffs como gate de corte (§9.1); pendientes `[P]` de cascada bloquean go-live |
 | Conexión del agente al SQL Server falla | L | H | El agente no conecta en la Fase 0 | SQL Server 2019 confirmado: TLS estándar del driver `mssql`, sin workaround legacy; error nombrado si falla |
-| Combinación de `oferta_cli` con las ofertas por segmento no queda exacta | M | H | Un precio del piloto que no cuadra pese a la cascada base | Confirmar la regla de combinación de `oferta_cli` (pendiente) antes del corte; el período sombra la detecta |
+| Alcance por producto de `oferta_cli` (posición 2) no del todo mapeado | L | M | Un precio del piloto que no cuadra pese a la cascada | Combinación confirmada (multiplicativa, p2); el período sombra compara contra facturas reales de Profit |
 | Segmentación del cliente (`co_seg`) desactualizada en el espejo | L | M | Un cliente EXCLUIDOS recibe descuento de otro segmento | El agente sincroniza `co_seg` por `row_id`; test de segmento en el paso 5 |
 | Clientes sin correo (22,5%) no pueden auto-activarse | H | L | Clientes que no logran entrar | Activación manual por admin (paso 12); depurar contactos en Profit |
 | Frescura del espejo cae si la PC del agente se apaga | M | M | `synced_at` envejece; `/api/health` degradado | Alerta de frescura (§16); Programador de tareas con reinicio; agente idempotente |
