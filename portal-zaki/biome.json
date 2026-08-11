@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
   "files": {
-    "includes": ["**", "!blueprints/**", "!drizzle/**", "!.next/**", "!node_modules/**"]
+    "includes": ["**", "!blueprints", "!drizzle", "!.next", "!node_modules"]
   },
   "css": {
     "parser": { "tailwindDirectives": true }
