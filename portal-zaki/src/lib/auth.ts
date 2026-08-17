@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { emailOTP } from "better-auth/plugins/email-otp";
 import { and, eq, isNull } from "drizzle-orm";
-import { headers as nextHeaders } from "next/headers";
+import { cookies as nextCookies, headers as nextHeaders } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db/index";
 import {
@@ -131,7 +131,28 @@ export async function getSession(
   const result = await auth.api.getSession({
     headers: reqHeaders ?? (await nextHeaders()),
   });
-  if (!result) return null;
+  if (!result) {
+    // TEMPORARY demo access (remove before real launch): a visitor holding the
+    // demo cookie (set only via /api/demo?key=<secret>) browses read-only as the
+    // first active customer. Never triggers in tests (reqHeaders is passed there).
+    if (!reqHeaders) {
+      const jar = await nextCookies();
+      if (jar.get("pz_demo")?.value === "1") {
+        const [demo] = await db
+          .select()
+          .from(customers)
+          .where(eq(customers.inactivo, false))
+          .limit(1);
+        if (demo) {
+          return {
+            appUser: { id: "demo", co_cli: demo.coCli, role: "client" },
+            email: demo.email ?? "demo@zakipharma.com",
+          };
+        }
+      }
+    }
+    return null;
+  }
 
   const [row] = await db
     .select()
