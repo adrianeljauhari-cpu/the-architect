@@ -143,9 +143,10 @@ export async function getSession(
           .from(customers)
           .where(eq(customers.inactivo, false))
           .limit(1);
-        if (demo) {
+        const [au] = await db.select().from(appUsers).limit(1);
+        if (demo && au) {
           return {
-            appUser: { id: "demo", co_cli: demo.coCli, role: "client" },
+            appUser: { id: au.id, co_cli: demo.coCli, role: "client" },
             email: demo.email ?? "demo@zakipharma.com",
           };
         }
