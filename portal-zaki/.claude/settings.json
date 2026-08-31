@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm install:*)",
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm format)",
+      "Bash(pnpm build)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm test)",
+      "Bash(pnpm dev)",
+      "Bash(pnpm db:up)",
+      "Bash(pnpm db:down)",
+      "Bash(pnpm db:generate)",
+      "Bash(pnpm db:migrate)",
+      "Bash(pnpm db:seed)",
+      "Bash(pnpm db:studio)",
+      "Bash(pnpm agent:once)",
+      "Bash(pnpm agent:sync)",
+      "Bash(docker compose up:*)",
+      "Bash(docker compose down)",
+      "Bash(psql:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git tag:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(git push:*)",
+      "Bash(drizzle-kit drop:*)",
+      "Bash(docker compose down:*volumes*)"
+    ]
+  }
+}

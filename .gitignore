@@ -12,6 +12,9 @@ Thumbs.db
 # Note: this does NOT affect the plugin surface — .claude-plugin/, skills/,
 # agents/ and commands/ live at the repo root and are tracked.
 .claude/
+# Exception: the generated PORTAL-ZAKI project carries its own rules and skills.
+# They are project content, not local settings, so they must be versioned.
+!portal-zaki/.claude/
 
 # Editor files
 .vscode/
