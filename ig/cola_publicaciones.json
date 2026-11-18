@@ -1,0 +1,90 @@
+{
+ "publicadas": [
+  {
+   "fecha": "2026-11-18",
+   "tipo": "post",
+   "id": "17911004373327783",
+   "permalink": "https://www.instagram.com/p/Df5Todil5jM/",
+   "tema": "Reglamentos Decretos 5.456/5.457/5.458"
+  },
+  {
+   "fecha": "2026-11-18",
+   "tipo": "historia",
+   "id": "18032109143691206"
+  }
+ ],
+ "cronograma": [
+  {
+   "fecha": "2026-11-19",
+   "tag": "LABORAL",
+   "tema": "Jornada de trabajo: cuántas horas máximo al día y a la semana (LOTTT, verificar art. 173)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-20",
+   "tag": "CIVIL",
+   "tema": "Mayoría de edad y capacidad: qué puedes hacer a los 18 (Código Civil, verificar art. 18)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-21",
+   "tag": "ESTUDIANTES",
+   "tema": "Gaceta Ordinaria vs. Extraordinaria: qué es cada una y cómo leerla",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-22",
+   "tag": "LEGAL.IA",
+   "tema": "Cómo hacerle una buena pregunta a Rick, tu abogado virtual (3 días gratis)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-23",
+   "tag": "GACETA OFICIAL",
+   "tema": "Resumen de Gacetas de la semana 16-22 nov (si no hubo normas nuevas, decirlo)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-24",
+   "tag": "LABORAL",
+   "tema": "Despido injustificado y estabilidad: qué puedes reclamar (LOTTT, verificar arts. 87 y 92)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-25",
+   "tag": "PENAL",
+   "tema": "Derechos de la persona imputada (COPP, verificar art. 127)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-26",
+   "tag": "FAMILIA",
+   "tema": "Obligación de manutención para hijos: qué incluye (LOPNNA, verificar arts. 365-366)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-27",
+   "tag": "VIVIENDA",
+   "tema": "Ley del Régimen Especial de Arrendamiento de Vivienda (G.O. Ext. 7.065): 3 puntos clave",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-28",
+   "tag": "ESTUDIANTES",
+   "tema": "Supremacía de la Constitución: qué norma vale más (CRBV, verificar art. 7)",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-29",
+   "tag": "LEGAL.IA",
+   "tema": "Qué puede hacer Rick por ti: preguntas, artículos y escritos",
+   "estado": "pendiente"
+  },
+  {
+   "fecha": "2026-11-30",
+   "tag": "GACETA OFICIAL",
+   "tema": "Resumen de Gacetas de la semana 23-29 nov",
+   "estado": "pendiente"
+  }
+ ]
+}
