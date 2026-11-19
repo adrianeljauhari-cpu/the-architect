@@ -11,6 +11,18 @@
    "fecha": "2026-11-18",
    "tipo": "historia",
    "id": "18032109143691206"
+  },
+  {
+   "fecha": "2026-11-19",
+   "tipo": "post",
+   "id": "17914064802485065",
+   "permalink": "https://www.instagram.com/p/Df8MvbZl-Sa/",
+   "tema": "Jornada de trabajo (LOTTT art. 173)"
+  },
+  {
+   "fecha": "2026-11-19",
+   "tipo": "historia",
+   "id": "18096299822498369"
   }
  ],
  "cronograma": [
@@ -18,7 +30,7 @@
    "fecha": "2026-11-19",
    "tag": "LABORAL",
    "tema": "Jornada de trabajo: cuántas horas máximo al día y a la semana (LOTTT, verificar art. 173)",
-   "estado": "pendiente"
+   "estado": "publicada"
   },
   {
    "fecha": "2026-11-20",
