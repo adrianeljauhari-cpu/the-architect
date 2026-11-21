@@ -35,6 +35,18 @@
    "fecha": "2026-11-20",
    "tipo": "historia",
    "id": "18120655142006786"
+  },
+  {
+   "fecha": "2026-11-21",
+   "tipo": "post",
+   "id": "18095956094678598",
+   "permalink": "https://www.instagram.com/p/DgBWSXVFEjP/",
+   "tema": "Gaceta Ordinaria vs Extraordinaria"
+  },
+  {
+   "fecha": "2026-11-21",
+   "tipo": "historia",
+   "id": "18176214811458266"
   }
  ],
  "cronograma": [
@@ -54,7 +66,7 @@
    "fecha": "2026-11-21",
    "tag": "ESTUDIANTES",
    "tema": "Gaceta Ordinaria vs. Extraordinaria: qué es cada una y cómo leerla",
-   "estado": "pendiente"
+   "estado": "publicada"
   },
   {
    "fecha": "2026-11-22",
