@@ -59,6 +59,17 @@
    "fecha": "2026-11-22",
    "tipo": "historia",
    "id": "18136924816742446"
+  },
+  {
+   "fecha": "2026-11-23",
+   "tipo": "post",
+   "id": "18157651027547092",
+   "permalink": "https://www.instagram.com/p/DgGf40EjVSo/"
+  },
+  {
+   "fecha": "2026-11-23",
+   "tipo": "historia",
+   "id": "17926790127450848"
   }
  ],
  "cronograma": [
@@ -90,7 +101,7 @@
    "fecha": "2026-11-23",
    "tag": "GACETA OFICIAL",
    "tema": "Resumen de Gacetas de la semana 16-22 nov (si no hubo normas nuevas, decirlo)",
-   "estado": "pendiente"
+   "estado": "publicada"
   },
   {
    "fecha": "2026-11-24",
