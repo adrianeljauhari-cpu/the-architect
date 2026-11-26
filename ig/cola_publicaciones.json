@@ -92,6 +92,17 @@
    "fecha": "2026-11-25",
    "tipo": "historia",
    "id": "18137481619790341"
+  },
+  {
+   "fecha": "2026-11-26",
+   "tipo": "post",
+   "id": "18651279079023539",
+   "permalink": "https://www.instagram.com/p/DgOOcJWjkCY/"
+  },
+  {
+   "fecha": "2026-11-26",
+   "tipo": "historia",
+   "id": "18038580494665524"
   }
  ],
  "cronograma": [
@@ -141,7 +152,8 @@
    "fecha": "2026-11-26",
    "tag": "FAMILIA",
    "tema": "Obligación de manutención para hijos: qué incluye (LOPNNA, verificar arts. 365-366)",
-   "estado": "pendiente"
+   "estado": "publicada",
+   "nota": "LOPNNA no verificable en línea; se usó CRBV arts. 76 y 78"
   },
   {
    "fecha": "2026-11-27",
